@@ -8,6 +8,8 @@ export interface AssistantMessageProps {
 export interface AssistantReasoningProps {
 	reasoning: string;
 	expand: boolean;
+	/** When reasoning started — used to show elapsed time in the "Thought" header */
+	startTime?: number;
 }
 
 export interface ChatQueueProps {

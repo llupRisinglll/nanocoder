@@ -1,5 +1,6 @@
 import {Box, Text} from 'ink';
-import {memo, useMemo} from 'react';
+import {useMemo, useRef} from 'react';
+import {formatElapsed} from '@/components/animated-gear-timer';
 import {useNonInteractiveRender} from '@/hooks/useNonInteractiveRender';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
@@ -8,16 +9,36 @@ import type {AssistantReasoningProps} from '@/types/index';
 import {wrapWithTrimmedContinuations} from '@/utils/text-wrapping';
 import {calculateTokens} from '@/utils/token-calculator';
 
+// Module-level store for reasoning start times, shared across components.
+// StreamingReasoning sets it when reasoning starts; AssistantReasoning reads it.
+let lastReasoningStartTime: number | null = null;
+
+export function setReasoningStartTime(time: number) {
+	lastReasoningStartTime = time;
+}
+
 // Indent applied to the expanded body so the "⚙ Thought" header acts as a
 // section header with its body (and any tool summary that follows) grouped
 // beneath it. Keep in sync with the marginLeft used in
 // displayCompactCountsSummary.
 const EXPANDED_INDENT = 2;
 
-export default memo(function AssistantReasoning({
+export default function AssistantReasoning({
 	reasoning,
 	expand,
+	startTime,
 }: AssistantReasoningProps) {
+	// Capture start time on first render only — don't update if module-level
+	// variable changes (next reasoning overwrites it).
+	const capturedStartTime = useRef(startTime ?? lastReasoningStartTime);
+	const effectiveStartTime = capturedStartTime.current;
+	const mountTimeRef = useRef(Date.now());
+	const thinkingDurationMs = effectiveStartTime
+		? mountTimeRef.current - effectiveStartTime
+		: null;
+	const thinkingDuration =
+		thinkingDurationMs !== null ? Math.floor(thinkingDurationMs / 1000) : null;
+	const isFastThinking = thinkingDuration !== null && thinkingDuration < 1;
 	const {colors} = useTheme();
 	const boxWidth = useTerminalWidth();
 	const nonInteractive = useNonInteractiveRender();
@@ -54,7 +75,14 @@ export default memo(function AssistantReasoning({
 	return (
 		<Box flexDirection="column" marginBottom={1}>
 			<Box>
-				<Text color={colors.tool}>{'\u2699'} Thought</Text>
+				<Text color={colors.tool}>{'⚙'} Thought</Text>
+				{thinkingDuration !== null && (
+					<Text color={colors.secondary}>
+						{isFastThinking
+							? ' (<1s)'
+							: ` (${formatElapsed(thinkingDuration)})`}
+					</Text>
+				)}
 				{!expand && !nonInteractive && (
 					<Text color={colors.secondary}>{'  '}ctrl+r to expand</Text>
 				)}
@@ -75,4 +103,4 @@ export default memo(function AssistantReasoning({
 			)}
 		</Box>
 	);
-});
+}

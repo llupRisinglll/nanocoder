@@ -1,7 +1,8 @@
 import {Box, Text, useFocus, useInput} from 'ink';
 import Spinner from 'ink-spinner';
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {commandRegistry} from '@/commands';
+import {AnimatedGear, ElapsedTimer} from '@/components/animated-gear-timer';
 import {DevelopmentModeIndicator} from '@/components/development-mode-indicator';
 import TextInput from '@/components/text-input';
 import {getShowWorkingIndicator} from '@/config/preferences';
@@ -9,19 +10,6 @@ import {useInputState} from '@/hooks/useInputState';
 import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import {useUIStateContext} from '@/hooks/useUIState';
-
-// Animated gear — same pattern as ink-spinner's Spinner component
-const GEAR_FRAMES = ['⚙', '✦'];
-function AnimatedGear() {
-	const [frame, setFrame] = useState(0);
-	useEffect(() => {
-		const timer = setInterval(() => {
-			setFrame(prev => (prev === GEAR_FRAMES.length - 1 ? 0 : prev + 1));
-		}, 400);
-		return () => clearInterval(timer);
-	}, []);
-	return React.createElement(Text, null, GEAR_FRAMES[frame]);
-}
 
 import type {
 	QueuedUserMessage,
@@ -113,40 +101,17 @@ export default function UserInput({
 }: ChatProps) {
 	const {isFocused, focus} = useFocus({autoFocus: !disabled, id: 'user-input'});
 
-	// Timer for working indicator
-	const [elapsedSeconds, setElapsedSeconds] = useState(0);
-	const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	// Track when busy state starts for the working indicator timer
+	const [workingStartTime, setWorkingStartTime] = useState<number | null>(null);
 
 	useEffect(() => {
 		if (isBusy && getShowWorkingIndicator()) {
-			// Start timer
-			setElapsedSeconds(0);
-			timerRef.current = setInterval(() => {
-				setElapsedSeconds(prev => prev + 1);
-			}, 1000);
+			setWorkingStartTime(Date.now());
 		} else {
-			// Stop timer
-			if (timerRef.current) {
-				clearInterval(timerRef.current);
-				timerRef.current = null;
-			}
-			setElapsedSeconds(0);
+			setWorkingStartTime(null);
 		}
-
-		return () => {
-			if (timerRef.current) clearInterval(timerRef.current);
-		};
 	}, [isBusy]);
 
-	const formatElapsed = (seconds: number): string => {
-		if (seconds < 60) return `${seconds}s`;
-		const mins = Math.floor(seconds / 60);
-		const secs = seconds % 60;
-		if (mins < 60) return `${mins}m ${secs}s`;
-		const hrs = Math.floor(mins / 60);
-		const remainMins = mins % 60;
-		return `${hrs}hr ${remainMins}m ${secs}s`;
-	};
 	const effectiveFocus = forceFocus || isFocused;
 	const {colors} = useTheme();
 	const inputState = useInputState();
@@ -979,10 +944,8 @@ export default function UserInput({
 							<Text color={colors.primary}>
 								<Spinner type="simpleDots" />
 							</Text>
-							{elapsedSeconds > 0 && (
-								<Text color={colors.secondary}>
-									{` (${formatElapsed(elapsedSeconds)})`}
-								</Text>
+							{workingStartTime && (
+								<ElapsedTimer startTime={workingStartTime} />
 							)}
 						</Box>
 					) : (

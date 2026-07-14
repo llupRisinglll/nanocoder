@@ -1,4 +1,5 @@
 import {Box, Text} from 'ink';
+import {TitledBoxWithPreferences} from '@/components/ui/titled-box';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import type {Task} from '@/tools/tasks/types';
@@ -42,40 +43,40 @@ export function TaskListDisplay({
 		}
 	};
 
+	const completedCount = tasks.filter(t => t.status === 'completed').length;
+	const progressText = `${completedCount}/${tasks.length}`;
+
 	return (
-		<Box flexDirection="column" marginTop={1} marginBottom={1}>
-			<Box flexDirection="column">
-				<Box>
-					<Text bold color={colors.primary}>
-						{title}
-					</Text>
+		<TitledBoxWithPreferences
+			title={`${title} (${progressText})`}
+			borderColor={colors.primary}
+			width={boxWidth}
+			paddingX={2}
+			paddingY={1}
+			flexDirection="column"
+		>
+			{tasks.map((task, index) => (
+				<Box key={task.id} flexDirection="row">
+					<Box width={2}>
+						<Text color={getStatusColor(task.status)}>
+							{STATUS_ICONS[task.status]}
+						</Text>
+					</Box>
+					<Box width={3}>
+						<Text color={colors.secondary}>{index + 1}.</Text>
+					</Box>
+					<Box flexShrink={1}>
+						<Text
+							wrap="truncate-end"
+							color={
+								task.status === 'completed' ? colors.secondary : colors.text
+							}
+						>
+							{task.title}
+						</Text>
+					</Box>
 				</Box>
-				<Box flexDirection="column">
-					{/* Task rows */}
-					{tasks.map((task, index) => (
-						<Box key={task.id} flexDirection="row" width={boxWidth}>
-							<Box width={2}>
-								<Text color={getStatusColor(task.status)}>
-									{STATUS_ICONS[task.status]}
-								</Text>
-							</Box>
-							<Box width={3}>
-								<Text color={colors.secondary}>{index + 1}.</Text>
-							</Box>
-							<Box flexShrink={1}>
-								<Text
-									wrap="truncate-end"
-									color={
-										task.status === 'completed' ? colors.secondary : colors.text
-									}
-								>
-									{task.title}
-								</Text>
-							</Box>
-						</Box>
-					))}
-				</Box>
-			</Box>
-		</Box>
+			))}
+		</TitledBoxWithPreferences>
 	);
 }
