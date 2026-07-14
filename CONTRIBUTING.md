@@ -1,6 +1,6 @@
-# Contributing to Nanocoder
+# Contributing to Omnicode
 
-Thank you for your interest in contributing to Nanocoder! We welcome contributions from developers of all skill levels. This guide will help you get started with contributing to the project.
+Thank you for your interest in contributing to Omnicode! We welcome contributions from developers of all skill levels. This guide will help you get started with contributing to the project.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ Thank you for your interest in contributing to Nanocoder! We welcome contributio
 
 Before contributing, please:
 
-1. Read our [README](README.md) to understand what Nanocoder does
+1. Read our [README](README.md) to understand what Omnicode does
 2. Check our [issue tracker](https://github.com/Nano-Collective/nanocoder/issues) for existing issues
 
 ## How to Contribute
@@ -48,8 +48,8 @@ Browse our open issues. If you find an unassigned issue you'd like to work on, c
 1. **Fork and clone the repository:**
 
    ```bash
-   git clone https://github.com/YOUR-USERNAME/nanocoder.git
-   cd nanocoder
+   git clone https://github.com/YOUR-USERNAME/omnicode.git
+   cd omnicode
    ```
 
 2. **Install dependencies:**
@@ -83,8 +83,8 @@ For a zero-setup, consistent development environment, we recommend using VS Code
 
 1. **Clone the repository** (if not already done)
    ```bash
-   git clone https://github.com/YOUR-USERNAME/nanocoder.git
-   cd nanocoder
+   git clone https://github.com/YOUR-USERNAME/omnicode.git
+   cd omnicode
    ```
 
 2. **Open in VS Code**
@@ -345,7 +345,7 @@ See `source/hooks/__tests__/` for examples of this pattern in practice.
 
 ### Logging
 
-Nanocoder uses structured logging based on Pino. See [`docs/pino-logging.md`](docs/pino-logging.md) for details.
+Omnicode uses structured logging based on Pino. See [`docs/pino-logging.md`](docs/pino-logging.md) for details.
 
 ## Development Tips
 
@@ -455,4 +455,4 @@ All contributors are recognized in the project. We appreciate:
 
 ---
 
-Thank you for contributing to Nanocoder! Your efforts help make local-first AI coding tools more accessible and powerful for everyone.
+Thank you for contributing to Omnicode! Your efforts help make local-first AI coding tools more accessible and powerful for everyone.

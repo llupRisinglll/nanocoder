@@ -1,7 +1,37 @@
-# Nanocoder
+# Omnicode
+
+**The best Claude Code alternative for developers who want multi-provider freedom.**
 
 [简体中文](README.zh-CN.md)
 [繁體中文](README.zh-TW.md)
+
+## Why Omnicode?
+
+We created Omnicode because we were tired of switching between different CLI coding tools that didn't solve our particular problems. One tool locked us into a single provider. Another had a great harness but no flexibility. We wanted both -- and we built it.
+
+**The Inspiration:**
+
+- From Anthropic's **Claude Code**: The exceptional agentic coding experience -- tight loops, structured tool use, and a harness that stays out of your way.
+- From OpenAI's **Codex**: The power and flexibility of a great CLI harness with development modes and project-level context.
+
+**The Reality:**
+
+Not everyone wants to be locked into a single provider. Whether you're using:
+
+- Local models via **Ollama**
+- **DeepSeek** for long-context tasks
+- **GLM** (Zhipu) for multilingual coding
+- **OpenRouter** for provider routing and failover
+- **Anthropic** and **OpenAI** directly
+- Any OpenAI-compatible API
+
+Omnicode gives you the best of both worlds: a Claude Code-level agentic coding experience with the freedom to use any provider you choose.
+
+**The Result:**
+
+The best CLI tool for agentic coding, period. If you're looking for a powerful, flexible, and beautiful CLI for AI-assisted development -- welcome to Omnicode.
+
+---
 
 ## Custom Features (Fork Additions)
 
@@ -33,7 +63,7 @@ The task list now renders in a styled box with the user's preferred title shape,
 
 An open coding agent for your terminal, built by a community collective rather than a company. Bring your own model, keep your code on your machine, and owe nothing to anyone.
 
-Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community. Nanocoder runs agentic coding on the model of your choice: local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. You decide which provider runs your code and where your data goes. No closed-source features and no paid tiers gating the useful parts: **privacy-respecting**, **local-first**, and **open for all**.
+Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community. Omnicode runs agentic coding on the model of your choice: local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. You decide which provider runs your code and where your data goes. No closed-source features and no paid tiers gating the useful parts: **privacy-respecting**, **local-first**, and **open for all**.
 
 ![Example](./.github/assets/example-preview.gif)
 
@@ -58,8 +88,8 @@ Built by the [Nano Collective](https://nanocollective.org), a community collecti
 ## Quick Start
 
 ```bash
-npm install -g @nanocollective/nanocoder
-nanocoder
+npm install -g @nanocollective/omnicode
+omnicode
 ```
 
 Also available via [Homebrew](docs/getting-started/installation.md#homebrew-macoslinux) and [Nix Flakes](docs/getting-started/installation.md#nix-flakes).
@@ -70,17 +100,17 @@ Specify provider, model, and starting mode directly:
 
 ```bash
 # Non-interactive mode with specific provider/model
-nanocoder --provider openrouter --model google/gemini-3.1-flash run "analyze src/app.ts"
+omnicode --provider openrouter --model google/gemini-3.1-flash run "analyze src/app.ts"
 
 # Interactive mode starting with specific provider
-nanocoder --provider ollama --model llama3.1
+omnicode --provider ollama --model llama3.1
 
 # Flags can appear before or after 'run' command
-nanocoder run --provider openrouter "refactor database module"
+omnicode run --provider openrouter "refactor database module"
 
 # Boot directly into a development mode (normal, auto-accept, yolo, plan)
-nanocoder --mode yolo
-nanocoder --mode plan run "audit the auth module"
+omnicode --mode yolo
+omnicode --mode plan run "audit the auth module"
 ```
 
 ## Documentation
@@ -96,13 +126,13 @@ Full documentation is available online at **[docs.nanocollective.org](https://do
 
 ## Why a collective
 
-Nanocoder is built by the Nano Collective rather than a company, and that shapes the tool itself. There are no paid tiers, no telemetry quietly shipping your prompts somewhere, and no roadmap steered by what monetises best — the people building it are the people using it. Building in the open as a collective means the harness stays multi-provider on principle: you are never locked to one vendor's model, and the conventions, tests, and release standards are shared across every Nano Collective project so the work stays legible and contributable.
+Omnicode is built by the Nano Collective rather than a company, and that shapes the tool itself. There are no paid tiers, no telemetry quietly shipping your prompts somewhere, and no roadmap steered by what monetises best — the people building it are the people using it. Building in the open as a collective means the harness stays multi-provider on principle: you are never locked to one vendor's model, and the conventions, tests, and release standards are shared across every Nano Collective project so the work stays legible and contributable.
 
 It is also bigger than one tool. The collective is assembling an open ecosystem of AI tooling — see the [other projects](https://nanocollective.org) — and contributors who show up now help shape what that becomes.
 
 ## Sponsors
 
-Nanocoder is built not for profit, but for the community, and that work is funded by sponsors. [Become one](https://nanocollective.org/sponsor).
+Omnicode is built not for profit, but for the community, and that work is funded by sponsors. [Become one](https://nanocollective.org/sponsor).
 
 ### [Atlas Cloud](https://www.atlascloud.ai/console/coding-plan)
 
