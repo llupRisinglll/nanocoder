@@ -20,6 +20,8 @@ const testColors: Colors = {
 	diffRemoved: 'red',
 	diffAddedText: 'text',
 	diffRemovedText: 'text',
+	diffAddedWord: 'greenBright',
+	diffRemovedWord: 'redBright',
 };
 
 // Test theme context value
