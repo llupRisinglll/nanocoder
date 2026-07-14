@@ -13,6 +13,9 @@ export class CustomCommandExecutor {
 		// Build template variables from parameters and arguments
 		const variables: Record<string, string> = {};
 
+		// Always provide all args as a single variable, even without declared parameters
+		variables['args'] = args.join(' ');
+
 		if (command.metadata.parameters && command.metadata.parameters.length > 0) {
 			// Map arguments to parameters positionally. A missing (or empty)
 			// argument falls back to the parameter's inline default, if any.
@@ -22,9 +25,6 @@ export class CustomCommandExecutor {
 				variables[name] =
 					provided !== undefined && provided !== '' ? provided : defaultValue;
 			});
-
-			// Also provide all args as a single variable
-			variables['args'] = args.join(' ');
 		}
 
 		// Add some default context variables

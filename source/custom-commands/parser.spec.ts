@@ -606,6 +606,27 @@ test('substituteTemplateVariables handles empty replacement values', t => {
 	t.is(result, 'Start: , End');
 });
 
+test('substituteTemplateVariables replaces $ARGUMENTS with args variable', t => {
+	const content = 'Working in $ARGUMENTS directory';
+	const result = substituteTemplateVariables(content, {args: '/home/user/project'});
+
+	t.is(result, 'Working in /home/user/project directory');
+});
+
+test('substituteTemplateVariables replaces multiple $ARGUMENTS occurrences', t => {
+	const content = 'From $ARGUMENTS to $ARGUMENTS';
+	const result = substituteTemplateVariables(content, {args: 'A'});
+
+	t.is(result, 'From A to A');
+});
+
+test('substituteTemplateVariables leaves $ARGUMENTS untouched when args is undefined', t => {
+	const content = 'No args: $ARGUMENTS';
+	const result = substituteTemplateVariables(content, {});
+
+	t.is(result, 'No args: $ARGUMENTS');
+});
+
 // ============================================================================
 // Edge Cases and Error Handling
 // ============================================================================

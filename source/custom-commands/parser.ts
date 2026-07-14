@@ -298,6 +298,11 @@ export function substituteTemplateVariables(
 ): string {
 	let result = content;
 
+	// Replace $ARGUMENTS with the full args string
+	if (variables['args'] !== undefined) {
+		result = result.replaceAll('$ARGUMENTS', variables['args']);
+	}
+
 	// Replace {{variable}} patterns
 	for (const [key, value] of Object.entries(variables)) {
 		const pattern = new RegExp(`\\{\\{\\s*${key}\\s*\\}\\}`, 'g');
