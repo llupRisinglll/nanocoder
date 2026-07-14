@@ -88,4 +88,5 @@ export type NanocoderShape =
 	| '3d'
 	| 'simple3d'
 	| 'chrome'
-	| 'huge';
+	| 'huge'
+	| 'fork';

@@ -588,7 +588,8 @@ function SettingsNanocoderShapePanel({
 
 	const shapeOptions: {label: string; value: NanocoderShape}[] = useMemo(
 		() => [
-			{label: 'Tiny (default)', value: 'tiny'},
+			{label: 'Fork (default)', value: 'fork'},
+			{label: 'Tiny', value: 'tiny'},
 			{label: 'Block', value: 'block'},
 			{label: 'Simple', value: 'simple'},
 			{label: 'Simple Block', value: 'simpleBlock'},
@@ -626,9 +627,20 @@ function SettingsNanocoderShapePanel({
 	if (isNarrow) {
 		return (
 			<>
-				<Gradient colors={[colors.primary, colors.tool]}>
-					<BigText text={displayText} font={previewShape} />
-				</Gradient>
+				{previewShape === 'fork' ? (
+					<Box marginBottom={1}>
+						<Gradient colors={[colors.primary, colors.tool]}>
+							<Text>
+								▄█▀█▄ █▄░▄█ █▄░█ █ █▀▀ █▀█ █▀▄ █▀▀{'\n'}
+								▀█▄█▀ █░▀░█ █░▀█ █ █▄▄ █▄█ █▄▀ ██▄
+							</Text>
+						</Gradient>
+					</Box>
+				) : (
+					<Gradient colors={[colors.primary, colors.tool]}>
+						<BigText text={displayText} font={previewShape} />
+					</Gradient>
+				)}
 				<TitledBoxWithPreferences
 					title="Nanocoder Shape"
 					width="100%"
@@ -654,9 +666,18 @@ function SettingsNanocoderShapePanel({
 	return (
 		<>
 			<Box marginBottom={1}>
-				<Gradient colors={[colors.primary, colors.tool]}>
-					<BigText text={displayText} font={previewShape} />
-				</Gradient>
+				{previewShape === 'fork' ? (
+					<Gradient colors={[colors.primary, colors.tool]}>
+						<Text>
+							▄█▀█▄ █▄░▄█ █▄░█ █ █▀▀ █▀█ █▀▄ █▀▀{'\n'}
+							▀█▄█▀ █░▀░█ █░▀█ █ █▄▄ █▄█ █▄▀ ██▄
+						</Text>
+					</Gradient>
+				) : (
+					<Gradient colors={[colors.primary, colors.tool]}>
+						<BigText text={displayText} font={previewShape} />
+					</Gradient>
+				)}
 			</Box>
 
 			<TitledBoxWithPreferences

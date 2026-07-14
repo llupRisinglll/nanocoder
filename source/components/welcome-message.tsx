@@ -1,23 +1,12 @@
-import fs from 'fs';
 import {Box, Text} from 'ink';
 import BigText from 'ink-big-text';
 import Gradient from 'ink-gradient';
-import path from 'path';
 import {memo} from 'react';
-import {fileURLToPath} from 'url';
 import {TitledBoxWithPreferences} from '@/components/ui/titled-box';
 import {getNanocoderShape} from '@/config/preferences';
 import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import type {NanocoderShape} from '@/types/ui';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Read package.json once at module load time to avoid repeated file reads
-const packageJson = JSON.parse(
-	fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8'),
-) as {version: string};
 
 // Fork banner - custom ASCII art for llupRisinglll's fork
 const FORK_BANNER = `▄█▀█▄ █▄░▄█ █▄░█ █ █▀▀ █▀█ █▀▄ █▀▀
@@ -32,7 +21,7 @@ function ForkBanner() {
 	);
 }
 
-const DEFAULT_SHAPE: NanocoderShape = 'tiny';
+const DEFAULT_SHAPE: NanocoderShape = 'fork';
 
 export default memo(function WelcomeMessage() {
 	const {boxWidth, isNarrow, isNormal} = useResponsiveTerminal();
@@ -42,7 +31,7 @@ export default memo(function WelcomeMessage() {
 	const nanocoderShape = getNanocoderShape() ?? DEFAULT_SHAPE;
 
 	// Determine which banner to show - fork banner is default
-	const showForkBanner = nanocoderShape === 'tiny' || !nanocoderShape;
+	const showForkBanner = nanocoderShape === 'fork';
 
 	return (
 		<>
@@ -66,7 +55,7 @@ export default memo(function WelcomeMessage() {
 					>
 						<Box marginBottom={1}>
 							<Text color={colors.primary} bold>
-								✻ Version {packageJson.version} ✻
+								Nanocoder fork by llupRisinglll
 							</Text>
 						</Box>
 
@@ -88,9 +77,8 @@ export default memo(function WelcomeMessage() {
 							<BigText text="Nanocoder" font={nanocoderShape} />
 						</Gradient>
 					)}
-
 					<TitledBoxWithPreferences
-						title={`✻ Welcome to Nanocoder ${packageJson.version} ✻`}
+						title={`Nanocoder fork by llupRisinglll`}
 						width={boxWidth}
 						borderColor={colors.primary}
 						paddingX={2}
@@ -123,11 +111,6 @@ export default memo(function WelcomeMessage() {
 					</TitledBoxWithPreferences>
 				</>
 			)}
-			<Box flexDirection="column" marginBottom={1}>
-				<Text color={colors.secondary}>
-					a NanoCoder fork by llupRisinglll (Luis Edward Miranda)
-				</Text>
-			</Box>
 		</>
 	);
 });
