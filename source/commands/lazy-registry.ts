@@ -132,6 +132,11 @@ export const lazyCommands: LazyCommand[] = [
 		load: () => import('@/commands/status').then(m => m.statusCommand),
 	},
 	{
+		name: 'statusline',
+		description: 'Configure the persistent status bar (on/off/command/reset)',
+		load: () => import('@/commands/statusline').then(m => m.statuslineCommand),
+	},
+	{
 		name: 'setup-config',
 		description: 'Open a configuration file in your editor',
 		load: () =>
