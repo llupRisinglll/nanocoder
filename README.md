@@ -17,6 +17,7 @@ Features added to this fork that may not be in the original repo.
 - [x] Multiline cursor navigation and word-jump fixes
 - [ ] `$ARGUMENTS` pass-through for commands without declared parameters
 - [ ] Styled task list display with progress count and themed borders
+- [ ] Custom fork banner with ASCII art
 
 ### Task List Display
 
