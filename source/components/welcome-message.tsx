@@ -19,6 +19,19 @@ const packageJson = JSON.parse(
 	fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf8'),
 ) as {version: string};
 
+// Fork banner - custom ASCII art for llupRisinglll's fork
+const FORK_BANNER = `▄█▀█▄ █▄░▄█ █▄░█ █ █▀▀ █▀█ █▀▄ █▀▀
+▀█▄█▀ █░▀░█ █░▀█ █ █▄▄ █▄█ █▄▀ ██▄`;
+
+function ForkBanner() {
+	const {colors} = useTheme();
+	return (
+		<Gradient colors={[colors.primary, colors.tool]}>
+			<Text>{FORK_BANNER}</Text>
+		</Gradient>
+	);
+}
+
 const DEFAULT_SHAPE: NanocoderShape = 'tiny';
 
 export default memo(function WelcomeMessage() {
@@ -28,14 +41,21 @@ export default memo(function WelcomeMessage() {
 	// Get the user's preferred nanocoder shape or use default
 	const nanocoderShape = getNanocoderShape() ?? DEFAULT_SHAPE;
 
+	// Determine which banner to show - fork banner is default
+	const showForkBanner = nanocoderShape === 'tiny' || !nanocoderShape;
+
 	return (
 		<>
 			{/* Narrow terminal: simple text without boxes */}
 			{isNarrow ? (
 				<>
-					<Gradient colors={[colors.primary, colors.tool]}>
-						<BigText text="NC" font={nanocoderShape} />
-					</Gradient>
+					{showForkBanner ? (
+						<ForkBanner />
+					) : (
+						<Gradient colors={[colors.primary, colors.tool]}>
+							<BigText text="NC" font={nanocoderShape} />
+						</Gradient>
+					)}
 					<Box
 						flexDirection="column"
 						marginBottom={1}
@@ -59,9 +79,15 @@ export default memo(function WelcomeMessage() {
 			) : (
 				/* Normal/Wide terminal: full version with TitledBoxWithPreferences */
 				<>
-					<Gradient colors={[colors.primary, colors.tool]}>
-						<BigText text="Nanocoder" font={nanocoderShape} />
-					</Gradient>
+					{showForkBanner ? (
+						<Box marginBottom={1}>
+							<ForkBanner />
+						</Box>
+					) : (
+						<Gradient colors={[colors.primary, colors.tool]}>
+							<BigText text="Nanocoder" font={nanocoderShape} />
+						</Gradient>
+					)}
 
 					<TitledBoxWithPreferences
 						title={`✻ Welcome to Nanocoder ${packageJson.version} ✻`}
@@ -97,6 +123,11 @@ export default memo(function WelcomeMessage() {
 					</TitledBoxWithPreferences>
 				</>
 			)}
+			<Box flexDirection="column" marginBottom={1}>
+				<Text color={colors.secondary}>
+					a NanoCoder fork by llupRisinglll (Luis Edward Miranda)
+				</Text>
+			</Box>
 		</>
 	);
 });
