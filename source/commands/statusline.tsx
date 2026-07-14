@@ -31,6 +31,11 @@ function StatusHelp() {
 			</Text>
 			<Text>
 				{'  '}
+				<Text bold>/statusline position top|bottom</Text>
+				<Text dimColor> — render above or below the input area</Text>
+			</Text>
+			<Text>
+				{'  '}
 				<Text bold>/statusline reset</Text>
 				<Text dimColor> — clear custom command, use built-in</Text>
 			</Text>
@@ -39,7 +44,7 @@ function StatusHelp() {
 				context, version.
 			</Text>
 			<Text dimColor>
-				The command's stdout is rendered at the bottom of the terminal.
+				The command's stdout is rendered at the configured position.
 			</Text>
 		</Box>
 	);
@@ -49,6 +54,7 @@ function StatusResult({config}: {config: StatusLineConfig | undefined}) {
 	const enabled = config?.enabled ?? false;
 	const command = config?.command;
 	const padding = config?.padding ?? 0;
+	const position = config?.position ?? 'bottom';
 
 	return (
 		<Box flexDirection="column" gap={1}>
@@ -65,6 +71,11 @@ function StatusResult({config}: {config: StatusLineConfig | undefined}) {
 			{!command && enabled && (
 				<Text>
 					Mode: <Text color="cyan">built-in</Text>
+				</Text>
+			)}
+			{enabled && (
+				<Text>
+					Position: <Text color="cyan">{position}</Text>
 				</Text>
 			)}
 			{padding > 0 && (
@@ -144,6 +155,25 @@ export const statuslineCommand = {
 				savePreferences(preferences);
 				return (
 					<StatusResponse message={`Custom statusline command set: ${cmd}`} />
+				);
+			}
+
+			case 'position':
+			case 'pos': {
+				const pos = args[1]?.toLowerCase();
+				if (pos !== 'top' && pos !== 'bottom') {
+					return (
+						<StatusError message="Usage: /statusline position top|bottom" />
+					);
+				}
+				preferences.statusLine = {
+					...(preferences.statusLine ?? {}),
+					enabled: true,
+					position: pos,
+				};
+				savePreferences(preferences);
+				return (
+					<StatusResponse message={`Statusline position set to ${pos}.`} />
 				);
 			}
 

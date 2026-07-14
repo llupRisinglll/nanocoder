@@ -104,7 +104,7 @@ export const StatusLine = memo(function StatusLine({
 	}
 
 	return (
-		<Box paddingLeft={padding} paddingRight={padding} justifyContent="flex-end">
+		<Box paddingLeft={padding} paddingRight={padding}>
 			<Text>{output}</Text>
 		</Box>
 	);

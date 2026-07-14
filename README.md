@@ -14,6 +14,7 @@ Features added to this fork that may not be in the original repo.
 - [ ] Status line position control (`/statusline position top|bottom`) + `/settings` integration
 - [ ] Enhanced compact file diff display with inline word highlighting
 - [ ] Working indicator with animated gear and timer (`⚙ Working... (12s)`)
+- [ ] Thinking indicator with animated gear and final duration (`⚙ Thought (5s)`)
 - [x] Multiline cursor navigation and word-jump fixes
 - [ ] `$ARGUMENTS` pass-through for commands without declared parameters
 - [ ] Styled task list display with progress count and themed borders

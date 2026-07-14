@@ -1,6 +1,8 @@
 import {Box, Text} from 'ink';
 import Spinner from 'ink-spinner';
 import {memo, useRef} from 'react';
+import {AnimatedGear, ElapsedTimer} from '@/components/animated-gear-timer';
+import {setReasoningStartTime} from '@/components/assistant-reasoning';
 import {useNonInteractiveRender} from '@/hooks/useNonInteractiveRender';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
@@ -15,15 +17,20 @@ import {calculateTokens} from '@/utils/token-calculator';
 export default memo(function StreamingReasoning({
 	reasoning,
 	expand,
+	startTime,
 }: {
 	reasoning: string;
 	expand: boolean;
+	startTime?: number;
 }) {
 	// Snapshot the wall clock on first render so tok/s measures streaming
 	// throughput rather than request-send-to-now (which over-counts the
 	// pre-first-token latency for reasoning models).
-	const startRef = useRef<number>(Date.now());
-	const startTime = startRef.current;
+	const startRef = useRef<number>(startTime ?? Date.now());
+	const effectiveStartTime = startRef.current;
+
+	// Store start time for AssistantReasoning to read later
+	setReasoningStartTime(effectiveStartTime);
 	const {colors} = useTheme();
 	const boxWidth = useTerminalWidth();
 	const nonInteractive = useNonInteractiveRender();
@@ -39,16 +46,17 @@ export default memo(function StreamingReasoning({
 	const displayText = visibleLines.join('\n');
 
 	const tokens = calculateTokens(reasoning);
-	const elapsedSec = (Date.now() - startTime) / 1000;
+	const elapsedSec = (Date.now() - effectiveStartTime) / 1000;
 	const tokPerSec = elapsedSec > 0.1 ? (tokens / elapsedSec).toFixed(1) : '—';
 
 	return (
 		<Box flexDirection="column" marginBottom={2}>
 			<Box>
 				<Text color={colors.tool}>
-					{'\u2699'} Thinking
+					<AnimatedGear /> Thinking
 					<Spinner type="simpleDots" />
 				</Text>
+				<ElapsedTimer startTime={effectiveStartTime} />
 				{expand ? (
 					<Text>
 						{'  '}~{tokens.toLocaleString()} tokens · {tokPerSec} tok/s

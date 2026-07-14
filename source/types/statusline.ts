@@ -13,6 +13,8 @@ export interface StatusLineConfig {
 	command?: string;
 	/** Horizontal padding (columns) on each side. Default: 0. */
 	padding?: number;
+	/** Position relative to the input area. Default: 'bottom'. */
+	position?: 'top' | 'bottom';
 }
 
 export interface StatusLineData {

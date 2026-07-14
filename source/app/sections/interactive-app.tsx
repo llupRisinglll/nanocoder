@@ -277,6 +277,29 @@ export function InteractiveApp({
 		};
 	}, [statusLineConfig, appState.currentModel, appState.contextPercentUsed]);
 
+	const statusLinePosition = statusLineConfig?.position ?? 'bottom';
+
+	const statusLineElement =
+		statusLineConfig?.enabled && statusLineData ? (
+			statusLineConfig.command ? (
+				<StatusLine
+					command={statusLineConfig.command}
+					data={statusLineData}
+					terminalWidth={terminalWidth}
+					padding={statusLineConfig.padding ?? 0}
+				/>
+			) : (
+				<BuiltinStatusLine
+					model={statusLineData.model}
+					workspace={statusLineData.workspace}
+					git={statusLineData.git}
+					context={statusLineData.context}
+					terminalWidth={terminalWidth}
+					padding={statusLineConfig.padding ?? 0}
+				/>
+			)
+		) : null;
+
 	return (
 		<Box flexDirection="column" padding={1} width="100%">
 			{/* Chat History - ALWAYS rendered to keep Static content stable */}
@@ -342,6 +365,9 @@ export function InteractiveApp({
 				</Box>
 			)}
 
+			{/* Status line — top position, rendered above the input area */}
+			{statusLinePosition === 'top' && statusLineElement}
+
 			{appState.startChat &&
 				appState.activeMode === null &&
 				!appState.isSettingsMode &&
@@ -386,28 +412,8 @@ export function InteractiveApp({
 					/>
 				)}
 
-			{/* Status line — persistent bar at the bottom */}
-			{statusLineConfig?.enabled && statusLineData && (
-				<>
-					{statusLineConfig.command ? (
-						<StatusLine
-							command={statusLineConfig.command}
-							data={statusLineData}
-							terminalWidth={terminalWidth}
-							padding={statusLineConfig.padding ?? 0}
-						/>
-					) : (
-						<BuiltinStatusLine
-							model={statusLineData.model}
-							workspace={statusLineData.workspace}
-							git={statusLineData.git}
-							context={statusLineData.context}
-							terminalWidth={terminalWidth}
-							padding={statusLineConfig.padding ?? 0}
-						/>
-					)}
-				</>
-			)}
+			{/* Status line — bottom position (default), rendered below the input area */}
+			{statusLinePosition === 'bottom' && statusLineElement}
 		</Box>
 	);
 }
