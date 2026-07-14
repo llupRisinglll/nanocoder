@@ -16,6 +16,13 @@ Features added to this fork that may not be in the original repo.
 - [ ] Working indicator with animated gear and timer (`⚙ Working... (12s)`)
 - [x] Multiline cursor navigation and word-jump fixes
 - [ ] `$ARGUMENTS` pass-through for commands without declared parameters
+- [ ] Styled task list display with progress count and themed borders
+
+### Task List Display
+
+The task list now renders in a styled box with the user's preferred title shape, theme colors, and a progress counter:
+
+![Task List Display](docs/task-list-display.png)
 
 ---
 
