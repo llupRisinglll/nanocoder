@@ -192,3 +192,20 @@ export function updatePrivacyPreference(value: boolean): void {
 	preferences.enablePromptScrubbing = value;
 	savePreferences(preferences);
 }
+
+/**
+ * Get the show-working-indicator preference from preferences
+ */
+export function getShowWorkingIndicator(): boolean {
+	const preferences = loadPreferences();
+	return preferences.showWorkingIndicator ?? false;
+}
+
+/**
+ * Save the show-working-indicator preference
+ */
+export function updateShowWorkingIndicator(value: boolean): void {
+	const preferences = loadPreferences();
+	preferences.showWorkingIndicator = value;
+	savePreferences(preferences);
+}
