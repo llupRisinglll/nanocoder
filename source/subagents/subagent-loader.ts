@@ -102,13 +102,21 @@ export class SubagentLoader {
 			projectAgentsPath,
 			2, // Project priority
 		);
+		const overrides: string[] = [];
 		for (const config of projectAgents) {
 			const existing = this.cache.get(config.name);
 			if (existing) {
-				const source = existing.source.isBuiltIn ? 'built-in' : 'user';
-				logWarning(`Project agent '${config.name}' overrides ${source} agent`);
+				overrides.push(config.name);
 			}
 			this.cache.set(config.name, config);
+		}
+		if (overrides.length > 0) {
+			const names = overrides.map(n => `\x1b[36m${n}\x1b[0m`).join(', ');
+			logWarning(
+				overrides.length === 1
+					? `Project agent overrides: ${names}`
+					: `Project agents override user agents: ${names}`,
+			);
 		}
 
 		this.initialized = true;

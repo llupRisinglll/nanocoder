@@ -142,19 +142,25 @@ export function createStaticComponents({
 	const components: React.ReactNode[] = [];
 
 	if (shouldShowWelcome) {
-		components.push(<WelcomeMessage key="welcome" />);
+		components.push(
+			<WelcomeMessage
+				key="welcome"
+				currentProvider={currentProvider}
+				currentModel={currentModel}
+			/>,
+		);
 	}
 
-	// Boot summary header: always in interactive mode (for config path
-	// visibility), and in run mode we include the active development mode
-	// so it's obvious what the agent is executing under.
-	if (currentProvider || currentModel) {
+	// Boot summary header: only in non-interactive mode (run mode) where
+	// we need to show provider/model/mode since there's no welcome banner.
+	// In interactive mode, the welcome banner's header already shows this info.
+	if (nonInteractiveMode && (currentProvider || currentModel)) {
 		components.push(
 			<Box key="boot-summary" flexDirection="column" marginBottom={1}>
 				<BootSummary
 					provider={currentProvider}
 					model={currentModel}
-					mode={nonInteractiveMode ? developmentMode : undefined}
+					mode={developmentMode}
 				/>
 			</Box>,
 		);

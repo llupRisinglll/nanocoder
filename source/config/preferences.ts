@@ -90,6 +90,33 @@ export function getNanocoderShape(): NanocoderShape | undefined {
 	return preferences.nanocoderShape;
 }
 
+/**
+ * Check if the welcome tips should be shown.
+ * Tips are shown on first run or if it's been more than 12 hours since last shown.
+ */
+export function shouldShowWelcomeTips(): boolean {
+	const preferences = loadPreferences();
+	const lastShown = preferences.lastWelcomeShown;
+
+	// First time - show tips
+	if (!lastShown) {
+		return true;
+	}
+
+	// Show tips if more than 12 hours have passed
+	const twelveHoursInMs = 12 * 60 * 60 * 1000;
+	return Date.now() - lastShown > twelveHoursInMs;
+}
+
+/**
+ * Update the last welcome shown timestamp.
+ */
+export function updateLastWelcomeShown(): void {
+	const preferences = loadPreferences();
+	preferences.lastWelcomeShown = Date.now();
+	savePreferences(preferences);
+}
+
 export function saveTune(config: TuneConfig): void {
 	const preferences = loadPreferences();
 	preferences.tune = config;
