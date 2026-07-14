@@ -5,14 +5,17 @@
 
 ## Custom Features (Fork Additions)
 
-Features added to this fork that may not be in the original repo:
+Features added to this fork that may not be in the original repo.
 
-- [x] Status line position control (`/statusline position top|bottom`)
-- [x] Status line in `/settings` menu
-- [x] Enhanced compact file diff display with inline word highlighting
-- [x] Working indicator with animated gear and timer (`⚙ Working... (12s)`)
+> **Legend:**
+> - `[ ]` = Not yet in the original repo (Nano-Collective/nanocoder)
+> - `[x]` = Already contributed to or present in the original repo
+
+- [ ] Status line position control (`/statusline position top|bottom`) + `/settings` integration
+- [ ] Enhanced compact file diff display with inline word highlighting
+- [ ] Working indicator with animated gear and timer (`⚙ Working... (12s)`)
 - [x] Multiline cursor navigation and word-jump fixes
-- [x] `$ARGUMENTS` pass-through for commands without declared parameters
+- [ ] `$ARGUMENTS` pass-through for commands without declared parameters
 
 ---
 
