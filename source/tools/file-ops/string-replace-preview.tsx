@@ -225,17 +225,26 @@ export async function formatStringReplacePreview(
 				const segments = computeInlineDiff(truncatedOldLine, truncatedNewLine);
 				const lineNumStr = String(startLine + oldIdx).padStart(4, ' ');
 
-				const oldParts = segments
-					.filter(seg => seg.type === 'unchanged' || seg.type === 'removed')
-					.map((seg, s) => (
-						<Text
-							key={`old-seg-${s}`}
-							bold={seg.type === 'removed'}
-							underline={seg.type === 'removed'}
-						>
-							{seg.text}
-						</Text>
-					));
+				// Build content as React nodes: plain strings for unchanged text
+				// (inherits outer line bg), <Text> with word-level bg only for
+				// changed segments. This creates the "highlight within highlight"
+				// effect where changed words get a more intense background.
+				const oldParts: React.ReactNode[] = [];
+				for (const seg of segments) {
+					if (seg.type === 'added') continue;
+					if (seg.type === 'removed') {
+						oldParts.push(
+							<Text
+								key={`old-seg-${oldParts.length}`}
+								backgroundColor={themeColors.diffRemovedWord}
+							>
+								{seg.text}
+							</Text>,
+						);
+					} else {
+						oldParts.push(seg.text);
+					}
+				}
 
 				diffLines.push(
 					<Box key={`diff-${diffKey++}`}>
@@ -255,17 +264,22 @@ export async function formatStringReplacePreview(
 					</Box>,
 				);
 
-				const newParts = segments
-					.filter(seg => seg.type === 'unchanged' || seg.type === 'added')
-					.map((seg, s) => (
-						<Text
-							key={`new-seg-${s}`}
-							bold={seg.type === 'added'}
-							underline={seg.type === 'added'}
-						>
-							{seg.text}
-						</Text>
-					));
+				const newParts: React.ReactNode[] = [];
+				for (const seg of segments) {
+					if (seg.type === 'removed') continue;
+					if (seg.type === 'added') {
+						newParts.push(
+							<Text
+								key={`new-seg-${newParts.length}`}
+								backgroundColor={themeColors.diffAddedWord}
+							>
+								{seg.text}
+							</Text>,
+						);
+					} else {
+						newParts.push(seg.text);
+					}
+				}
 
 				diffLines.push(
 					<Box key={`diff-${diffKey++}`}>
