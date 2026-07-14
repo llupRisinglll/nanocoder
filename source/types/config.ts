@@ -408,6 +408,7 @@ export interface UserPreferences {
 		[key in string]?: string;
 	};
 	lastUpdateCheck?: number;
+	lastWelcomeShown?: number;
 	selectedTheme?: ThemePreset;
 	trustedDirectories?: string[];
 	titleShape?: TitleShape;
