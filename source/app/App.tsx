@@ -1,6 +1,6 @@
 import {Box, Text, useApp} from 'ink';
 import Spinner from 'ink-spinner';
-import React, {useMemo} from 'react';
+import React, {useMemo, useRef} from 'react';
 import {createStaticComponents} from '@/app/components/app-container';
 import {NonInteractiveShell} from '@/app/components/non-interactive-shell';
 import {useAppLogging} from '@/app/hooks/useAppLogging';
@@ -274,6 +274,21 @@ export default function App({
 		developmentMode: appState.developmentMode,
 		tune: appState.tune,
 	});
+
+	// Track reasoning start time (single value for current turn)
+	const reasoningStartTimeRef = useRef<number | null>(null);
+
+	// Record start time when reasoning begins (boolean flag avoids string comparison issues)
+	const hasReasoning = Boolean(chatHandler.streamingReasoning);
+	const hadReasoning = useRef(false);
+
+	if (hasReasoning && !hadReasoning.current) {
+		// Reasoning just started
+		reasoningStartTimeRef.current = Date.now();
+	}
+	hadReasoning.current = hasReasoning;
+	// Don't clear here — AssistantReasoning renders after isGenerating goes false.
+	// The ref is overwritten on next reasoning start, so no memory leak.
 
 	// All app-level structured logging lives in this hook so the orchestrator
 	// stays focused on render/state composition.
@@ -599,6 +614,9 @@ export default function App({
 		);
 	}
 
+	const showAssistantReasoning =
+		chatHandler.streamingReasoning && chatHandler.streamingContent;
+
 	const liveComponent =
 		appState.liveComponent ??
 		(chatHandler.isGenerating &&
@@ -608,13 +626,15 @@ export default function App({
 					<StreamingReasoning
 						reasoning={chatHandler.streamingReasoning}
 						expand={appState.reasoningExpanded}
+						startTime={reasoningStartTimeRef.current ?? Date.now()}
 					/>
 				)}
 				{/* Reasoning stream is complete when text streaming begins */}
-				{chatHandler.streamingReasoning && chatHandler.streamingContent && (
+				{showAssistantReasoning && (
 					<AssistantReasoning
 						reasoning={chatHandler.streamingReasoning}
 						expand={appState.reasoningExpanded}
+						startTime={reasoningStartTimeRef.current ?? undefined}
 					/>
 				)}
 				{chatHandler.streamingContent && (

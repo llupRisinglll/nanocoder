@@ -13,6 +13,7 @@ import {
 	getPasteThreshold,
 	getPrivacyPreference,
 	getReasoningExpanded,
+	getShowWorkingIndicator,
 	updateCompactToolDisplay,
 	updateNanocoderShape,
 	updateNotificationsPreference,
@@ -20,6 +21,7 @@ import {
 	updatePrivacyPreference,
 	updateReasoningExpanded,
 	updateSelectedTheme,
+	updateShowWorkingIndicator,
 } from '@/config/preferences';
 import {getThemeColors, themes} from '@/config/themes';
 import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
@@ -905,6 +907,7 @@ function SettingsDisplayPanel({
 
 	const currentReasoningExpanded = getReasoningExpanded();
 	const currentCompactToolDisplay = getCompactToolDisplay();
+	const currentShowWorkingIndicator = getShowWorkingIndicator();
 
 	useInput((_, key) => {
 		if (key.escape) {
@@ -915,7 +918,10 @@ function SettingsDisplayPanel({
 		}
 	});
 
-	type ToggleKey = 'reasoningExpanded' | 'compactToolDisplay';
+	type ToggleKey =
+		| 'reasoningExpanded'
+		| 'compactToolDisplay'
+		| 'showWorkingIndicator';
 
 	const items: {label: string; value: ToggleKey}[] = useMemo(() => {
 		const isOn = (val: boolean | undefined) => (val ? 'ON' : 'OFF');
@@ -928,8 +934,16 @@ function SettingsDisplayPanel({
 				label: `Expand Tool Results by default: ${isOn(currentCompactToolDisplay)}`,
 				value: 'compactToolDisplay' as ToggleKey,
 			},
+			{
+				label: `Show Working Indicator: ${isOn(currentShowWorkingIndicator)}`,
+				value: 'showWorkingIndicator' as ToggleKey,
+			},
 		];
-	}, [currentReasoningExpanded, currentCompactToolDisplay]);
+	}, [
+		currentReasoningExpanded,
+		currentCompactToolDisplay,
+		currentShowWorkingIndicator,
+	]);
 
 	const handleSelect = (item: {label: string; value: ToggleKey}) => {
 		if (item.value === 'reasoningExpanded') {
@@ -938,6 +952,9 @@ function SettingsDisplayPanel({
 		} else if (item.value === 'compactToolDisplay') {
 			const newValue = !currentCompactToolDisplay;
 			updateCompactToolDisplay(newValue);
+		} else if (item.value === 'showWorkingIndicator') {
+			const newValue = !currentShowWorkingIndicator;
+			updateShowWorkingIndicator(newValue);
 		}
 		onBack();
 	};
