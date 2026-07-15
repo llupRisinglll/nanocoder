@@ -2,7 +2,11 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {TitleShape} from '@/components/ui/styled-title';
 import {getAppConfig} from '@/config/index';
 import {loadPreferences} from '@/config/preferences';
-import {defaultTheme, getThemeColors} from '@/config/themes';
+import {
+	defaultTheme,
+	getThemeColors,
+	resolveThemePreset,
+} from '@/config/themes';
 import {resolveTune} from '@/config/tune';
 import {CustomCommandExecutor} from '@/custom-commands/executor';
 import {CustomCommandLoader} from '@/custom-commands/loader';
@@ -47,7 +51,9 @@ export function useAppState(
 ) {
 	// Initialize theme and title shape from preferences
 	const preferences = loadPreferences();
-	const initialTheme = preferences.selectedTheme || defaultTheme;
+	const initialTheme = resolveThemePreset(
+		preferences.selectedTheme || defaultTheme,
+	);
 	const initialTitleShape = preferences.titleShape || 'pill';
 
 	const [client, setClient] = useState<LLMClient | null>(null);
