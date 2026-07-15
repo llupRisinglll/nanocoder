@@ -153,6 +153,13 @@ export const displayExecutedTool = async (
 		const isError =
 			result.content.startsWith('Error: ') ||
 			result.content.startsWith('⚒ Validation failed');
+
+		// Enhanced compact display for file operations (shows path + diff)
+		const isFileOp =
+			result.name === 'write_file' ||
+			result.name === 'string_replace' ||
+			result.name === 'diff_edit';
+
 		if (isError) {
 			// Condense failures to a short red one-liner in compact mode.
 			await displayToolResult(
@@ -163,6 +170,15 @@ export const displayExecutedTool = async (
 				true,
 			);
 		} else if (options.nonInteractiveMode) {
+			await displayToolResult(
+				toolCall,
+				result,
+				toolManager,
+				addToChatQueue,
+				true,
+			);
+		} else if (isFileOp) {
+			// File operations get enhanced compact display with path + diff
 			await displayToolResult(
 				toolCall,
 				result,

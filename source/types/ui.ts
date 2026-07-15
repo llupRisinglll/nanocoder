@@ -8,11 +8,14 @@ export interface Colors {
 	error: string;
 	info: string;
 	warning: string;
-	// Diff highlight colors
+	// Diff highlight colors (line-level)
 	diffAdded: string;
 	diffRemoved: string;
 	diffAddedText: string;
 	diffRemovedText: string;
+	// Diff highlight colors (word-level, more intense than line-level)
+	diffAddedWord: string;
+	diffRemovedWord: string;
 	// Gradient colors (optional)
 	gradientColors?: string[];
 }

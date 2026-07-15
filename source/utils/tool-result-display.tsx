@@ -6,6 +6,7 @@ import {useTheme} from '@/hooks/useTheme';
 import {generateKey} from '@/session/key-generator';
 import type {ToolManager} from '@/tools/tool-manager';
 import type {ToolCall, ToolResult} from '@/types/index';
+import {areLinesSimlar, computeInlineDiff} from '@/utils/inline-diff';
 import {parseToolArguments} from '@/utils/tool-args-parser';
 
 /**
@@ -51,6 +52,261 @@ function CompactToolError({toolName}: {toolName: string}) {
 			{'\u2692'} {toolName} failed
 		</Text>
 	);
+}
+
+interface CompactFileResultProps {
+	toolName: 'write_file' | 'string_replace' | 'diff_edit';
+	path: string;
+	oldStr?: string;
+	newStr?: string;
+}
+
+/**
+ * Enhanced compact display for file operations.
+ * Shows file path, line count changes, and a git-style inline diff with line numbers.
+ * Wraps in ToolMessage to match the design system.
+ */
+function CompactFileResult({
+	toolName,
+	path,
+	oldStr,
+	newStr,
+}: CompactFileResultProps) {
+	const {colors} = useTheme();
+
+	const newLines = newStr?.split('\n') ?? [];
+	const oldLines = oldStr?.split('\n') ?? [];
+
+	const rangeDesc =
+		toolName === 'write_file'
+			? `${newLines.length} line${newLines.length !== 1 ? 's' : ''}`
+			: `${oldLines.length} line${oldLines.length !== 1 ? 's' : ''} \u2192 ${newLines.length} line${newLines.length !== 1 ? 's' : ''}`;
+
+	const displayName = toolName === 'write_file' ? 'Write' : 'Edit';
+
+	// Build diff lines
+	const diffElements: React.ReactElement[] = [];
+	const maxLines = 6;
+
+	if (
+		(toolName === 'string_replace' || toolName === 'diff_edit') &&
+		oldStr &&
+		newStr
+	) {
+		// Build a unified diff with inline word-level highlighting
+		let oldIdx = 0;
+		let newIdx = 0;
+
+		while (
+			(oldIdx < oldLines.length || newIdx < newLines.length) &&
+			diffElements.length < maxLines
+		) {
+			const oldLine = oldIdx < oldLines.length ? oldLines[oldIdx] : null;
+			const newLine = newIdx < newLines.length ? newLines[newIdx] : null;
+
+			if (oldLine !== null && newLine !== null && oldLine === newLine) {
+				// Unchanged line \u2014 context
+				const lineNumStr = String(newIdx + 1).padStart(4, ' ');
+				diffElements.push(
+					<Box key={`ctx-${newIdx}`}>
+						<Text wrap="truncate-end">
+							{lineNumStr} {newLine}
+						</Text>
+					</Box>,
+				);
+				oldIdx++;
+				newIdx++;
+			} else if (
+				oldLine !== null &&
+				newLine !== null &&
+				areLinesSimlar(oldLine, newLine)
+			) {
+				// Similar lines \u2014 word diff matching OpenClaude's exact structure
+				const segments = computeInlineDiff(oldLine, newLine);
+				const lineNumStr = String(newIdx + 1).padStart(4, ' ');
+
+				// Build content as React nodes: plain strings for unchanged text
+				// (inherits outer line bg), <Text> with word-level bg only for
+				// changed segments. Ink's squash-text-nodes applies the inner
+				// transform to ink-text children but leaves #text nodes raw,
+				// so the outer bg covers unchanged parts while the inner bg
+				// overrides it on changed words \u2014 the "highlight within highlight".
+				const oldParts: React.ReactNode[] = [];
+				for (const s of segments) {
+					if (s.type === 'added') continue; // skip additions in old view
+					if (s.type === 'removed') {
+						// Changed word: inner Text with more-intense word-level bg
+						oldParts.push(
+							<Text
+								key={`old-r-${oldParts.length}`}
+								backgroundColor={colors.diffRemovedWord}
+							>
+								{s.text}
+							</Text>,
+						);
+					} else {
+						// Unchanged: plain string \u2014 inherits outer line bg
+						oldParts.push(s.text);
+					}
+				}
+
+				const newParts: React.ReactNode[] = [];
+				for (const s of segments) {
+					if (s.type === 'removed') continue; // skip removals in new view
+					if (s.type === 'added') {
+						// Changed word: inner Text with more-intense word-level bg
+						newParts.push(
+							<Text
+								key={`new-a-${newParts.length}`}
+								backgroundColor={colors.diffAddedWord}
+							>
+								{s.text}
+							</Text>,
+						);
+					} else {
+						// Unchanged: plain string \u2014 inherits outer line bg
+						newParts.push(s.text);
+					}
+				}
+
+				// Removed line: prefix + content, outer has line bg + text color
+				diffElements.push(
+					<Box key={`rem-${oldIdx}`} flexDirection="row">
+						<Text
+							backgroundColor={colors.diffRemoved}
+							color={colors.diffRemovedText}
+						>
+							{lineNumStr} -{' '}
+						</Text>
+						<Text
+							wrap="truncate-end"
+							backgroundColor={colors.diffRemoved}
+							color={colors.diffRemovedText}
+						>
+							{oldParts}
+						</Text>
+					</Box>,
+				);
+
+				// Added line: prefix + content, outer has line bg + text color
+				diffElements.push(
+					<Box key={`add-${newIdx}`} flexDirection="row">
+						<Text
+							backgroundColor={colors.diffAdded}
+							color={colors.diffAddedText}
+						>
+							{lineNumStr} +{' '}
+						</Text>
+						<Text
+							wrap="truncate-end"
+							backgroundColor={colors.diffAdded}
+							color={colors.diffAddedText}
+						>
+							{newParts}
+						</Text>
+					</Box>,
+				);
+				oldIdx++;
+				newIdx++;
+			} else if (oldLine !== null) {
+				// Removed line — entire line red
+				const lineNumStr = String(oldIdx + 1).padStart(4, ' ');
+				diffElements.push(
+					<Box key={`del-${oldIdx}`}>
+						<Text
+							backgroundColor={colors.diffRemoved}
+							color={colors.diffRemovedText}
+						>
+							{lineNumStr} -{' '}
+						</Text>
+						<Text
+							wrap="truncate-end"
+							backgroundColor={colors.diffRemoved}
+							color={colors.diffRemovedText}
+						>
+							{oldLine}
+						</Text>
+					</Box>,
+				);
+				oldIdx++;
+			} else if (newLine !== null) {
+				// Added line — entire line green
+				const lineNumStr = String(newIdx + 1).padStart(4, ' ');
+				diffElements.push(
+					<Box key={`ins-${newIdx}`}>
+						<Text
+							backgroundColor={colors.diffAdded}
+							color={colors.diffAddedText}
+						>
+							{lineNumStr} +{' '}
+						</Text>
+						<Text
+							wrap="truncate-end"
+							backgroundColor={colors.diffAdded}
+							color={colors.diffAddedText}
+						>
+							{newLine}
+						</Text>
+					</Box>,
+				);
+				newIdx++;
+			}
+		}
+
+		const remaining = oldLines.length - oldIdx + (newLines.length - newIdx);
+		if (remaining > 0) {
+			diffElements.push(
+				<Text key="more" color={colors.secondary}>
+					...{remaining} more line{remaining !== 1 ? 's' : ''}
+				</Text>,
+			);
+		}
+	} else if (toolName === 'write_file' && newStr) {
+		// For new/rewritten files, show first few lines
+		const previewCount = Math.min(newLines.length, 3);
+
+		for (let i = 0; i < previewCount; i++) {
+			const lineNumStr = String(i + 1).padStart(4, ' ');
+			diffElements.push(
+				<Box key={`line-${i}`}>
+					<Text wrap="truncate-end">
+						{lineNumStr} {newLines[i]}
+					</Text>
+				</Box>,
+			);
+		}
+		if (newLines.length > 3) {
+			diffElements.push(
+				<Text key="more" color={colors.secondary}>
+					...{newLines.length - 3} more lines
+				</Text>,
+			);
+		}
+	}
+
+	const message = (
+		<Box flexDirection="column">
+			<Box>
+				<Text color={colors.tool}>{'\u2692'} </Text>
+				<Text color={colors.primary} bold>
+					{displayName}
+				</Text>
+				<Text color={colors.secondary}> </Text>
+				<Text wrap="truncate-end" color={colors.text}>
+					{path}
+				</Text>
+			</Box>
+			<Box>
+				<Text color={colors.secondary}> {'\u23bf'} </Text>
+				<Text color={colors.text}>{rangeDesc}</Text>
+			</Box>
+			{diffElements.length > 0 && (
+				<Box flexDirection="column">{diffElements}</Box>
+			)}
+		</Box>
+	);
+
+	return <ToolMessage message={message} hideBox={true} />;
 }
 
 /**
@@ -202,6 +458,46 @@ export async function displayToolResult(
 	// Compact mode: show count-based one-liner instead of full formatter output
 	// (skip for tools that should always show expanded output)
 	if (compact && !ALWAYS_EXPANDED_TOOLS.has(result.name)) {
+		// Enhanced compact display for file operations
+		if (
+			result.name === 'write_file' ||
+			result.name === 'string_replace' ||
+			result.name === 'diff_edit'
+		) {
+			const parsedArgs = parseToolArguments<{
+				path?: string;
+				file_path?: string;
+				old_str?: string;
+				new_str?: string;
+				content?: string;
+				diff?: string;
+			}>(toolCall.function.arguments);
+			const path = parsedArgs.path || parsedArgs.file_path || 'unknown';
+
+			// For diff_edit, extract old/new from diff format
+			let oldStr = parsedArgs.old_str;
+			let newStr = parsedArgs.content || parsedArgs.new_str;
+			if (result.name === 'diff_edit' && parsedArgs.diff) {
+				// Parse diff format: <<<<<<< SEARCH / ======= / >>>>>>> REPLACE
+				const parts = parsedArgs.diff.split('=======\n');
+				if (parts.length === 2) {
+					oldStr = parts[0].replace('<<<<<<< SEARCH\n', '').trim();
+					newStr = parts[1].replace('>>>>>>> REPLACE', '').trim();
+				}
+			}
+
+			addToChatQueue(
+				<CompactFileResult
+					key={generateKey(`tool-compact-${result.tool_call_id}`)}
+					toolName={result.name}
+					path={path}
+					oldStr={oldStr}
+					newStr={newStr}
+				/>,
+			);
+			return;
+		}
+
 		const description = getGroupedCompactDescription(result.name, 1);
 		addToChatQueue(
 			<CompactToolResult
