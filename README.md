@@ -71,7 +71,7 @@ In both modes `/clear` fully resets the terminal to a fresh welcome banner, and 
 
 ---
 
-An open coding agent for your terminal, built by a community collective rather than a company. Bring your own model, keep your code on your machine, and owe nothing to anyone.
+Omnicode exists because I got tired of switching from CLI to CLI. Rather than forcing closed agentic coding tools into shape with environment hacks and proxies around private binaries, I contribute to Nanocoder and shape this fork around the features I actually need. Every line is open — no unnecessary telemetry, nothing hidden — with the goal of being a genuinely great alternative to the big-name coding CLIs. Bring your own model, keep your code on your machine.
 
 Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community. Omnicode runs agentic coding on the model of your choice: local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. You decide which provider runs your code and where your data goes. No closed-source features and no paid tiers gating the useful parts: **privacy-respecting**, **local-first**, and **open for all**.
 
