@@ -26,8 +26,8 @@ New work lands on `rc/*` branches here first, then gets proposed back to the ori
 |---|---|
 | Dual TUI screen modes — inline default / `--alt-screen` fullscreen with in-app scrolling, reliable `/clear`, graceful exit | PR open upstream |
 | Provider config robustness — save no longer wipes providers; startup falls back to a working provider instead of freezing | PR open upstream |
+| Session resume/continue flags (`--resume`/`--continue`) | PR open upstream |
 | Omnicode theme + chat layout overhaul (rounded input/message boxes, merged tool-activity lines, truncated output previews) | Fork-exclusive |
-| Session resume/continue flags (`--resume`/`--continue`) | Incubating on `rc/session-resume-continue` |
 | Statusline position control (`/statusline position top\|bottom`) | Incubating on `rc/statusline` |
 | Animated working/thinking indicators (`⚙ Working... (12s)`, `⚙ Thought (5s)`) | Incubating on `rc/indicators` |
 | Compact file diff display with inline word highlighting | Incubating on `rc/compact-diff` |
