@@ -7,12 +7,14 @@ import {StyledSelectInput} from '@/components/ui/styled-select-input';
 import type {TitleShape} from '@/components/ui/styled-title';
 import {TitledBoxWithPreferences} from '@/components/ui/titled-box';
 import {
+	getCompactDiffMaxLines,
 	getCompactToolDisplay,
 	getNanocoderShape,
 	getNotificationsPreference,
 	getPasteThreshold,
 	getPrivacyPreference,
 	getReasoningExpanded,
+	updateCompactDiffMaxLines,
 	updateCompactToolDisplay,
 	updateNanocoderShape,
 	updateNotificationsPreference,
@@ -776,6 +778,9 @@ export function SettingsDisplayPanel({
 
 	const currentReasoningExpanded = getReasoningExpanded();
 	const currentCompactToolDisplay = getCompactToolDisplay();
+	const [currentCompactDiffMaxLines, setCurrentCompactDiffMaxLines] = useState(
+		getCompactDiffMaxLines(),
+	);
 
 	useInput((_, key) => {
 		if (key.escape) {
@@ -786,10 +791,21 @@ export function SettingsDisplayPanel({
 		}
 	});
 
-	type ToggleKey = 'reasoningExpanded' | 'compactToolDisplay';
+	// Cycled (not toggled) — Enter advances to the next preset. 0 means
+	// unlimited, shown last in the cycle.
+	const COMPACT_DIFF_MAX_LINES_OPTIONS = [10, 20, 30, 50, 100, 0];
+
+	type ToggleKey =
+		| 'reasoningExpanded'
+		| 'compactToolDisplay'
+		| 'compactDiffMaxLines';
 
 	const items: {label: string; value: ToggleKey}[] = useMemo(() => {
 		const isOn = (val: boolean | undefined) => (val ? 'ON' : 'OFF');
+		const diffMaxLinesLabel =
+			currentCompactDiffMaxLines === 0
+				? 'unlimited'
+				: String(currentCompactDiffMaxLines);
 		return [
 			{
 				label: `Show Thinking by default: ${isOn(currentReasoningExpanded)}`,
@@ -799,8 +815,16 @@ export function SettingsDisplayPanel({
 				label: `Expand Tool Results by default: ${isOn(currentCompactToolDisplay)}`,
 				value: 'compactToolDisplay' as ToggleKey,
 			},
+			{
+				label: `Compact diff max lines: ${diffMaxLinesLabel}`,
+				value: 'compactDiffMaxLines' as ToggleKey,
+			},
 		];
-	}, [currentReasoningExpanded, currentCompactToolDisplay]);
+	}, [
+		currentReasoningExpanded,
+		currentCompactToolDisplay,
+		currentCompactDiffMaxLines,
+	]);
 
 	const handleSelect = (item: {label: string; value: ToggleKey}) => {
 		if (item.value === 'reasoningExpanded') {
@@ -809,6 +833,17 @@ export function SettingsDisplayPanel({
 		} else if (item.value === 'compactToolDisplay') {
 			const newValue = !currentCompactToolDisplay;
 			updateCompactToolDisplay(newValue);
+		} else if (item.value === 'compactDiffMaxLines') {
+			const currentIndex = COMPACT_DIFF_MAX_LINES_OPTIONS.indexOf(
+				currentCompactDiffMaxLines,
+			);
+			const nextIndex =
+				(currentIndex === -1 ? 0 : currentIndex + 1) %
+				COMPACT_DIFF_MAX_LINES_OPTIONS.length;
+			const nextValue = COMPACT_DIFF_MAX_LINES_OPTIONS[nextIndex] ?? 20;
+			updateCompactDiffMaxLines(nextValue);
+			setCurrentCompactDiffMaxLines(nextValue);
+			return;
 		}
 		onBack();
 	};

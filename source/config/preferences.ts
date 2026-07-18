@@ -177,6 +177,33 @@ export function updateCompactToolDisplay(value: boolean): void {
 }
 
 /**
+ * Default cap for compact-mode file-diff line counts. 20 covers most
+ * single edits without flooding the transcript; 0 means unlimited.
+ */
+export const DEFAULT_COMPACT_DIFF_MAX_LINES = 20;
+
+/**
+ * Get the compact-mode diff line cap from preferences. 0 means unlimited.
+ */
+export function getCompactDiffMaxLines(): number {
+	const preferences = loadPreferences();
+	const value = preferences.compactDiffMaxLines;
+	if (typeof value === 'number' && value >= 0) {
+		return Math.round(value);
+	}
+	return DEFAULT_COMPACT_DIFF_MAX_LINES;
+}
+
+/**
+ * Save the compact-mode diff line cap preference. 0 means unlimited.
+ */
+export function updateCompactDiffMaxLines(value: number): void {
+	const preferences = loadPreferences();
+	preferences.compactDiffMaxLines = Math.max(0, Math.round(value));
+	savePreferences(preferences);
+}
+
+/**
  * Get the privacy scrubbing preference from preferences
  */
 export function getPrivacyPreference(): boolean {

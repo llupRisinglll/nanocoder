@@ -427,4 +427,7 @@ export interface UserPreferences {
 	 * content. Also switchable per-run with the --no-alt-screen flag.
 	 */
 	alternateScreen?: boolean;
+
+	/** Max diff lines shown in compact-mode file results. 0 = unlimited. Default 20. */
+	compactDiffMaxLines?: number;
 }
