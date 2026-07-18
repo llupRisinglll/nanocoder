@@ -39,7 +39,6 @@ This repo (`llupRisinglll/omnicode`, remote `origin`) is a fork of `Nano-Collect
 - **Tags**: `pr-<num>` marks a branch with an open upstream PR; `pr-<num>-merged` marks that PR merged upstream — a skip signal for `scripts/update-fork-branches.sh` and for you (that branch's work already landed, don't re-open work on it).
 - **`scripts/update-fork-branches.sh [--no-verify]`** rebases the branch fleet (every local `rc/*` plus `fork/omnicode-identity` onto `upstream/main`, `fork/omnicode-theme` onto `origin/main`), force-pushes with `--force-with-lease`, and skips: the branch checked out in the main working dir, any branch already covered by a `pr-<num>-merged` tag, and branches already up to date. Read the script header before relying on its exact branch map — it changes as fork branches are added.
 - **Never switch the branch checked out in the main working dir** for background/parallel work — a saved preference (e.g. an omnicode theme) referencing data only present on another branch can crash startup on checkout. Do parallel work in a `git worktree` under the session scratchpad instead.
-- `rtk`-wrapped `git log --oneline` can display a merge commit under its second parent's subject line — cosmetic, don't mistake it for the wrong commit being merged.
 
 ### Upstream PR procedure
 
@@ -156,7 +155,7 @@ Bundle tools default to `tools_visibility: scoped`: hidden from the global tool 
 - **`useInput` handlers are not deduplicated.** EventEmitter calls ALL registered listeners for every keypress. If two `useInput` hooks handle the same key, both fire. There is no stop-propagation.
 - **Stale refs are the default.** Refs updated during render are stale for events in the same `stdin.read()` block. Fix: update ref `.current` immediately at each mutation point inside the handler, before `setState`.
 - **Multiline input needs special handling.** Up/Down arrows in `TextInput` navigate between lines; history navigation (from `UserInput`) only fires on first/last line via the `onEdgeArrow` callback. Parent guards like `if (input.includes('\n')) return;` block all multiline behavior — avoid removing them without understanding the full callback chain.
-- **`<Static>` ignores ancestor `Box` padding** — it renders at column 0 regardless of nesting. Inline (default) live regions compensate with `marginLeft={-1}`. In fullscreen mode (`--alt-screen` / `disableStatic`), everything inherits root padding to column 1 and `chat-history.tsx` (the codebase's only `overflow="hidden"`) clips anything left of column 1 — fullscreen live boxes must NOT carry the `-1` compensation. Pattern: `marginLeft={fullscreen ? 0 : -1}`.
+- **`<Static>` ignores ancestor `Box` padding** — it renders at column 0 regardless of nesting. Inline (default) live regions compensate with `marginLeft={-1}`. In fullscreen mode (`--alt-screen` / `disableStatic`), everything inherits root padding to column 1 and any component with `overflow="hidden"` (currently just `chat-history.tsx`) clips anything left of column 1 — fullscreen live boxes must NOT carry the `-1` compensation. Pattern: `marginLeft={fullscreen ? 0 : -1}`.
 - **`Box` defaults to `flexDirection="row"`.** A wrapper around components that return stacked fragments must explicitly declare `flexDirection="column"`, or children lay out side by side instead of stacked.
 - **Verify layout changes with a baseline structural comparison**, not eyeballing: render the same scene from `HEAD` (a temp worktree) and from the working tree, then diff the frames — check line count and line order, not just column offsets. Column-only diffing misses reflow bugs.
 
@@ -175,7 +174,7 @@ Bundle tools default to `tools_visibility: scoped`: hidden from the global tool 
 - **Run single test**: `pnpm run test:ava source/path/to/file.spec.ts`
 - Biome's lint/format checks exclude `*.spec.ts`/`*.spec.tsx` by config (`biome.json`) — that's expected, not a gap to fix.
 - `models-dev-client.spec.ts` hits the live models.dev API and can flake in CI independent of your change.
-- A `fork/*` branch that rebrands the welcome banner will fail some of `welcome-message.spec.tsx`'s upstream-string assertions (e.g. version/`"Welcome to Nanocoder"` regexes) until that spec is updated for the fork banner — known, expected on those branches; don't let it block an unrelated change on the same branch, but do fix it once you're the one touching that spec.
+- On a `fork/*` branch with a rebranded welcome banner, expect `welcome-message.spec.tsx` failures on upstream-string assertions (e.g. version/`"Welcome to Nanocoder"` regexes); don't let them block an unrelated change on the same branch, but update the spec for the fork banner once you're the one touching it.
 
 ## Manual Verification
 
