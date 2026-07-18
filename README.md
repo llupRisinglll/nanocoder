@@ -33,22 +33,43 @@ New work lands on `rc/*` branches here first, then gets proposed back to the ori
 | Optimized welcome header + conditional tips display | Incubating on `rc/welcome-header` |
 | `$ARGUMENTS` pass-through for commands without declared parameters | Incubating on `rc/arguments-passthrough` |
 
-### Task List Display
+#### Previews
+
+<details>
+<summary>Task list display (from the table above)</summary>
 
 The task list now renders in a styled box with the user's preferred title shape, theme colors, and a progress counter:
 
 ![Task List Display](docs/task-list-display.png)
 
-![Example](./.github/assets/example-preview.gif)
+</details>
 
-## Quick Start
+## Getting started
+
+Omnicode isn't published to npm — this is the pre-release lane, so setup is from source:
 
 ```bash
-npm install -g @nanocollective/nanocoder
-omnicode
+git clone https://github.com/llupRisinglll/omnicode
+cd omnicode
+pnpm install
+pnpm run build
 ```
 
-Also available via [Homebrew](docs/getting-started/installation.md#homebrew-macoslinux) and [Nix Flakes](docs/getting-started/installation.md#nix-flakes).
+`pnpm run build` compiles to `dist/cli.js` and marks it executable (bin name `omnicode`). Then make it available on your `PATH` — either link the package:
+
+```bash
+pnpm link --global   # or: npm link
+```
+
+or symlink the binary directly:
+
+```bash
+mkdir -p ~/.local/bin
+ln -s "$(pwd)/dist/cli.js" ~/.local/bin/omnicode
+# already executable after `pnpm run build`; if not, run: chmod +x dist/cli.js
+```
+
+Either way, running `omnicode` should now start the CLI.
 
 ### CLI Flags
 
@@ -74,14 +95,7 @@ omnicode --alt-screen
 
 ## Documentation
 
-Full documentation is available online at **[docs.nanocollective.org](https://docs.nanocollective.org/nanocoder/docs)** or in the [docs/](docs/) folder:
-
-- **[Getting Started](docs/getting-started/index.md)** - Installation, setup, and first steps
-- **[Configuration](docs/configuration/index.md)** - AI providers, MCP servers, preferences, logging, timeouts
-- **[Features](docs/features/index.md)** - Skills (commands, subagents, tools, event triggers), the per-project daemon, checkpointing, development modes, task management, and more
-- **[Commands Reference](docs/features/commands.md)** - Complete list of built-in slash commands
-- **[Keyboard Shortcuts](docs/features/keyboard-shortcuts.md)** - Full shortcut reference
-- **[Community](docs/community.md)** - Contributing, Discord, and how to help
+Further reference lives in the [docs/](docs/) folder, plus upstream's doc site at [docs.nanocollective.org](https://docs.nanocollective.org/nanocoder/docs).
 
 ## Why a collective
 
