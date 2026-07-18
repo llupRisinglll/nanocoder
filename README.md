@@ -2,8 +2,8 @@
 
 **An alternative to Claude Code and opencode: a fork of Nanocoder that ships its unreleased features first.**
 
-[简体中文](README.zh-CN.md)
-[繁體中文](README.zh-TW.md)
+[简体中文](README.zh-CN.md) (not yet updated to the new structure)
+[繁體中文](README.zh-TW.md) (not yet updated to the new structure)
 
 Omnicode is a fork of [Nanocoder](https://github.com/Nano-Collective/nanocoder) that seeks to aggressively pull its unreleased work forward in order to:
 
@@ -12,7 +12,7 @@ Omnicode is a fork of [Nanocoder](https://github.com/Nano-Collective/nanocoder) 
 - Keep everything open — no telemetry, no proxy hacks propping up closed binaries
 - Contribute finished work back upstream once it has proven itself here, rather than diverging permanently
 
-Omnicode exists because switching between CLI coding tools got tiring: one tool locks you to a provider, another has no flexibility. Rather than fight closed agentic tools with env hacks and proxies, this fork shapes Nanocoder around the features actually needed, and sends them upstream when they're ready. Bring your own model, keep your code on your machine.
+Omnicode exists because switching between CLI coding tools got tiring: one tool locks you to a provider, another has no flexibility. Rather than fight closed agentic tools with env hacks and proxies, this fork shapes Nanocoder around the features actually needed, and sends them upstream when they're ready. Bring your own model, keep your code on your machine: run agentic coding on the model of your choice — local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community.
 
 ## Relationship to Nanocoder
 
@@ -39,34 +39,12 @@ The task list now renders in a styled box with the user's preferred title shape,
 
 ![Task List Display](docs/task-list-display.png)
 
----
-
-Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community. Omnicode runs agentic coding on the model of your choice: local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. You decide which provider runs your code and where your data goes. No closed-source features and no paid tiers gating the useful parts: **privacy-respecting**, **local-first**, and **open for all**.
-
 ![Example](./.github/assets/example-preview.gif)
-
----
-![Build Status](https://github.com/Nano-Collective/nanocoder/raw/main/badges/build.svg)
-![Coverage](https://github.com/Nano-Collective/nanocoder/raw/main/badges/coverage.svg)
-![Version](https://github.com/Nano-Collective/nanocoder/raw/main/badges/npm-version.svg)
-![NPM Downloads](https://github.com/Nano-Collective/nanocoder/raw/main/badges/npm-downloads-monthly.svg)
-![NPM License](https://github.com/Nano-Collective/nanocoder/raw/main/badges/npm-license.svg)
-![Repo Size](https://github.com/Nano-Collective/nanocoder/raw/main/badges/repo-size.svg)
-![Stars](https://github.com/Nano-Collective/nanocoder/raw/main/badges/stars.svg)
-![Forks](https://github.com/Nano-Collective/nanocoder/raw/main/badges/forks.svg)
-
-<a href="https://www.star-history.com/#Nano-Collective/nanocoder&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Nano-Collective/nanocoder&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Nano-Collective/nanocoder&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Nano-Collective/nanocoder&type=Date" />
- </picture>
-</a>
 
 ## Quick Start
 
 ```bash
-npm install -g @nanocollective/omnicode
+npm install -g @nanocollective/nanocoder
 omnicode
 ```
 
@@ -93,15 +71,6 @@ omnicode --mode plan run "audit the auth module"
 # Fullscreen mode with in-app scrolling instead of the inline default
 omnicode --alt-screen
 ```
-
-### Screen Modes
-
-Omnicode supports two rendering modes, mirroring what Claude Code and Codex ship:
-
-- **Inline (default)** — renders on the main screen; finished messages print once into the terminal's native scrollback, so your terminal's scrollbar, mouse wheel, and search work as usual. The transcript stays in the terminal after you exit.
-- **Fullscreen** (`--alt-screen` flag, or `"alternateScreen": true` in preferences) — a fixed-height layout on the alternate screen buffer with in-app scrolling: mouse wheel and PgUp/PgDn, with a scroll indicator and automatic snap-back to bottom on new output. `--no-alt-screen` forces inline mode even if the preference is set.
-
-In both modes, `/clear` fully resets the terminal to a fresh welcome banner, and exiting (Ctrl+C or `/exit`) erases the input UI cleanly, leaving the transcript and a farewell instead of a dead input box.
 
 ## Documentation
 
