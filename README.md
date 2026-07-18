@@ -51,6 +51,13 @@ Omnicode isn't published to npm — this is the pre-release lane, so setup is fr
 ```bash
 git clone https://github.com/llupRisinglll/omnicode
 cd omnicode
+```
+
+Or let the install script do the rest: `./install.sh` (detects your OS, checks prerequisites, builds, and puts `omnicode` on your PATH).
+
+Otherwise, continue manually:
+
+```bash
 pnpm install
 pnpm run build
 ```
