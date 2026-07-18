@@ -32,7 +32,6 @@ New work lands on `rc/*` branches here first, then gets proposed back to the ori
 | Compact file diff display with inline word highlighting | Incubating on `rc/compact-diff` |
 | Optimized welcome header + conditional tips display | Incubating on `rc/welcome-header` |
 | `$ARGUMENTS` pass-through for commands without declared parameters | Incubating on `rc/arguments-passthrough` |
-| Multiline cursor navigation and word-jump fixes | Merged upstream — [nanocoder#657](https://github.com/Nano-Collective/nanocoder/pull/657) |
 
 ### Task List Display
 
