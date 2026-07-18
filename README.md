@@ -39,15 +39,6 @@ The task list now renders in a styled box with the user's preferred title shape,
 
 ![Task List Display](docs/task-list-display.png)
 
-### TUI Screen Modes
-
-Two rendering modes, mirroring what Claude Code and Codex ship:
-
-- **Inline (default)** — renders on the main screen; finished messages print once into the terminal's native scrollback, so your terminal's scrollbar, mouse wheel, and search (Ctrl+Shift+F) work as usual. The transcript stays in the terminal after exit.
-- **Fullscreen** (`--alt-screen` flag, or `"alternateScreen": true` in preferences) — a fixed-height layout on the alternate screen buffer with in-app scrolling: mouse wheel (3 rows/tick) and PgUp/PgDn (half a page), with a scroll indicator and automatic snap-back to bottom on new output. Note: with mouse reporting active, select text with Shift+drag. `--no-alt-screen` forces inline mode over the preference.
-
-In both modes `/clear` fully resets the terminal to a fresh welcome banner, and exiting (Ctrl+C or `/exit`) erases the input UI cleanly, leaving the transcript and a farewell instead of a dead input box.
-
 ---
 
 Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community. Omnicode runs agentic coding on the model of your choice: local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. You decide which provider runs your code and where your data goes. No closed-source features and no paid tiers gating the useful parts: **privacy-respecting**, **local-first**, and **open for all**.
