@@ -1,9 +1,11 @@
 import {Box, Text} from 'ink';
 import React from 'react';
+import {themes} from '@/config/themes';
 import {useTheme} from '@/hooks/useTheme';
 import type {Colors} from '@/types/ui';
 import type {DiffSegment} from '@/utils/inline-diff';
 import type {DiffLine, DiffLineKind} from './compute.js';
+import {highlightCode, languageForPath} from './syntax.js';
 
 export interface DiffViewProps {
 	/** Flat, already-computed line list (see `computeDiffLines`). */
@@ -12,6 +14,12 @@ export interface DiffViewProps {
 	width?: number;
 	/** Cap the number of logical diff lines rendered; unlimited when omitted. */
 	maxLines?: number;
+	/**
+	 * Source file path used to detect a `cli-highlight` language and layer
+	 * syntax token colors under the diff backgrounds. Omit to render plain
+	 * (no highlighting) — the default for callers that don't have a path.
+	 */
+	filePath?: string;
 }
 
 const DEFAULT_WIDTH = 80;
@@ -123,8 +131,19 @@ export default function DiffView({
 	lines,
 	width = DEFAULT_WIDTH,
 	maxLines,
+	filePath,
 }: DiffViewProps): React.ReactElement {
-	const {colors} = useTheme();
+	const {colors, currentTheme} = useTheme();
+
+	// Contrast guard: cli-highlight's default theme assumes a dark terminal
+	// background. Only layer syntax token colors on dark themes — light
+	// themes keep the plain diffAddedText/diffRemovedText colors (v1; a
+	// custom cli-highlight theme derived from the active palette is future
+	// work).
+	const themeType = themes[currentTheme]?.themeType ?? 'dark';
+	const detectedLanguage = filePath ? languageForPath(filePath) : '';
+	const highlightEnabled = detectedLanguage.length > 0 && themeType === 'dark';
+	const language = detectedLanguage;
 
 	const visibleLines =
 		maxLines !== undefined && maxLines < lines.length
@@ -180,18 +199,21 @@ export default function DiffView({
 						{prefix}
 					</Text>
 					<Text backgroundColor={bg} color={lineText} wrap="truncate-end">
-						{row.map((part, partIndex) =>
-							part.type === 'unchanged' ? (
-								part.text
+						{row.map((part, partIndex) => {
+							const display = highlightEnabled
+								? highlightCode(part.text, language)
+								: part.text;
+							return part.type === 'unchanged' ? (
+								display
 							) : (
 								<Text
 									key={`${lineIndex}-${rowIndex}-${partIndex}`}
 									backgroundColor={wordBg}
 								>
-									{part.text}
+									{display}
 								</Text>
-							),
-						)}
+							);
+						})}
 						{padding}
 					</Text>
 				</Box>,

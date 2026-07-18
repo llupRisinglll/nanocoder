@@ -176,3 +176,68 @@ test('DiffView renders consistent structure across themes (tokyo-night + catppuc
 		t.regex(output, /\+\s+new value here/);
 	}
 });
+
+// ============================================================================
+// Syntax highlighting (Phase 3)
+// ============================================================================
+
+test('DiffView preserves visible text when a filePath enables syntax highlighting', t => {
+	const lines: DiffLine[] = [
+		{kind: 'context', oldLineNo: 1, newLineNo: 1, text: 'const a = 1;'},
+		{kind: 'remove', oldLineNo: 2, text: 'const old = fn();'},
+		{kind: 'add', newLineNo: 2, text: 'const next = fn();'},
+	];
+
+	const {lastFrame} = render(
+		<MockThemeProvider>
+			<DiffView lines={lines} width={40} filePath="example.ts" />
+		</MockThemeProvider>,
+	);
+
+	// stripAnsi isn't imported here — assert on substrings that survive
+	// regardless of any embedded ANSI codes cli-highlight may have inserted
+	// between tokens (word boundaries stay intact; only single tokens like
+	// `const` could get wrapped, so match short, single-token substrings).
+	const output = lastFrame() ?? '';
+	t.regex(output, /a = 1;/);
+	t.regex(output, /old = fn\(\);/);
+	t.regex(output, /next = fn\(\);/);
+});
+
+test('DiffView skips highlighting (plain diff colors only) on a light theme', t => {
+	const lines: DiffLine[] = [
+		{kind: 'remove', oldLineNo: 1, text: 'const old = 1;'},
+		{kind: 'add', newLineNo: 1, text: 'const next = 1;'},
+	];
+
+	const withHighlightAttempt = render(
+		<MockThemeProvider theme="catppuccin-latte">
+			<DiffView lines={lines} width={40} filePath="example.ts" />
+		</MockThemeProvider>,
+	);
+	const withoutFilePath = render(
+		<MockThemeProvider theme="catppuccin-latte">
+			<DiffView lines={lines} width={40} />
+		</MockThemeProvider>,
+	);
+
+	// Light theme + filePath must render identically to no filePath at all —
+	// the contrast guard disables highlighting outright rather than risking
+	// unreadable token colors on a light background.
+	t.is(withHighlightAttempt.lastFrame(), withoutFilePath.lastFrame());
+});
+
+test('DiffView renders plain text when no filePath is given (no language detected)', t => {
+	const lines: DiffLine[] = [
+		{kind: 'add', newLineNo: 1, text: 'const value = 1;'},
+	];
+
+	const {lastFrame} = render(
+		<MockThemeProvider>
+			<DiffView lines={lines} width={40} />
+		</MockThemeProvider>,
+	);
+
+	const output = lastFrame() ?? '';
+	t.regex(output, /const value = 1;/);
+});
