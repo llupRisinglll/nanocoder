@@ -1,58 +1,38 @@
 # Omnicode
 
-**The best Claude Code alternative for developers who want multi-provider freedom.**
+**An alternative to Claude Code and opencode: a fork of Nanocoder that ships its unreleased features first.**
 
 [简体中文](README.zh-CN.md)
 [繁體中文](README.zh-TW.md)
 
-## Why Omnicode?
+Omnicode is a fork of [Nanocoder](https://github.com/Nano-Collective/nanocoder) that seeks to aggressively pull its unreleased work forward in order to:
 
-We created Omnicode because we were tired of switching between different CLI coding tools that didn't solve our particular problems. One tool locked us into a single provider. Another had a great harness but no flexibility. We wanted both -- and we built it.
+- Give developers building agentic CLI workflows a real alternative to Claude Code and opencode, without locking them to one model provider
+- Put Nanocoder's experimental and unreleased changes (the `rc/*` branches) in users' hands before they land upstream
+- Keep everything open — no telemetry, no proxy hacks propping up closed binaries
+- Contribute finished work back upstream once it has proven itself here, rather than diverging permanently
 
-**The Inspiration:**
+Omnicode exists because switching between CLI coding tools got tiring: one tool locks you to a provider, another has no flexibility. Rather than fight closed agentic tools with env hacks and proxies, this fork shapes Nanocoder around the features actually needed, and sends them upstream when they're ready. Bring your own model, keep your code on your machine.
 
-- From Anthropic's **Claude Code**: The exceptional agentic coding experience -- tight loops, structured tool use, and a harness that stays out of your way.
-- From OpenAI's **Codex**: The power and flexibility of a great CLI harness with development modes and project-level context.
+## Relationship to Nanocoder
 
-**The Reality:**
+Omnicode is a fork of [Nano-Collective/nanocoder](https://github.com/Nano-Collective/nanocoder) — not a rewrite, not a clone. It contains everything in Nanocoder, plus changes that haven't been released upstream yet.
 
-Not everyone wants to be locked into a single provider. Whether you're using:
+New work lands on `rc/*` branches here first, then gets proposed back to the original repo once it's finished and proven: [multiline cursor navigation](https://github.com/Nano-Collective/nanocoder/pull/657) is already merged upstream; [dual TUI screen modes](https://github.com/Nano-Collective/nanocoder/pull/669) has an open PR. Omnicode is where Nanocoder's next release lives before it's a release — the same relationship Neovim has to Vim.
 
-- Local models via **Ollama**
-- **DeepSeek** for long-context tasks
-- **GLM** (Zhipu) for multilingual coding
-- **OpenRouter** for provider routing and failover
-- **Anthropic** and **OpenAI** directly
-- Any OpenAI-compatible API
+## What Omnicode has that Nanocoder doesn't (yet)
 
-Omnicode gives you the best of both worlds: a Claude Code-level agentic coding experience with the freedom to use any provider you choose.
-
-**The Result:**
-
-The best CLI tool for agentic coding, period. If you're looking for a powerful, flexible, and beautiful CLI for AI-assisted development -- welcome to Omnicode.
-
----
-
-## Custom Features (Fork Additions)
-
-Features added to this fork that may not be in the original repo.
-
-> **Legend:**
-> - `[ ]` = Not yet in the original repo (Nano-Collective/nanocoder)
-> - `[x]` = Already contributed to or present in the original repo
-
-- [ ] Status line position control (`/statusline position top|bottom`) + `/settings` integration
-- [ ] Enhanced compact file diff display with inline word highlighting
-- [ ] Working indicator with animated gear and timer (`⚙ Working... (12s)`)
-- [ ] Thinking indicator with animated gear and final duration (`⚙ Thought (5s)`)
-- [x] Multiline cursor navigation and word-jump fixes
-- [ ] `$ARGUMENTS` pass-through for commands without declared parameters
-- [ ] Styled task list display with progress count and themed borders
-- [ ] Custom fork banner with ASCII art
-- [ ] Optimized welcome header with version, model, directory, and git branch
-- [ ] Conditional tips display (first run or after 12+ hours)
-- [ ] Condensed agent override messages (single line instead of multiple)
-- [ ] TUI rendering overhaul: dual screen modes (inline/fullscreen via `--alt-screen`) with scrolling, reliable `/clear`, and graceful exit
+| Feature | Upstream status |
+|---|---|
+| Dual TUI screen modes — inline default / `--alt-screen` fullscreen with in-app scrolling, reliable `/clear`, graceful exit | PR open — [nanocoder#669](https://github.com/Nano-Collective/nanocoder/pull/669) |
+| Omnicode theme + chat layout overhaul (rounded input/message boxes, merged tool-activity lines, truncated output previews) | Fork-exclusive |
+| Session resume/continue flags (`--resume`/`--continue`) | Incubating on `rc/session-resume-continue` |
+| Statusline position control (`/statusline position top\|bottom`) | Incubating on `rc/statusline` |
+| Animated working/thinking indicators (`⚙ Working... (12s)`, `⚙ Thought (5s)`) | Incubating on `rc/indicators` |
+| Compact file diff display with inline word highlighting | Incubating on `rc/compact-diff` |
+| Optimized welcome header + conditional tips display | Incubating on `rc/welcome-header` |
+| `$ARGUMENTS` pass-through for commands without declared parameters | Incubating on `rc/arguments-passthrough` |
+| Multiline cursor navigation and word-jump fixes | Merged upstream — [nanocoder#657](https://github.com/Nano-Collective/nanocoder/pull/657) |
 
 ### Task List Display
 
@@ -70,8 +50,6 @@ Two rendering modes, mirroring what Claude Code and Codex ship:
 In both modes `/clear` fully resets the terminal to a fresh welcome banner, and exiting (Ctrl+C or `/exit`) erases the input UI cleanly, leaving the transcript and a farewell instead of a dead input box.
 
 ---
-
-Omnicode exists because I got tired of switching from CLI to CLI. Rather than forcing closed agentic coding tools into shape with environment hacks and proxies around private binaries, I contribute to Nanocoder and shape this fork around the features I actually need. Every line is open — no unnecessary telemetry, nothing hidden — with the goal of being a genuinely great alternative to the big-name coding CLIs. Bring your own model, keep your code on your machine.
 
 Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community. Omnicode runs agentic coding on the model of your choice: local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. You decide which provider runs your code and where your data goes. No closed-source features and no paid tiers gating the useful parts: **privacy-respecting**, **local-first**, and **open for all**.
 
@@ -128,7 +106,7 @@ omnicode --alt-screen
 
 ### Screen Modes
 
-Nanocoder supports two rendering modes, mirroring what Claude Code and Codex ship:
+Omnicode supports two rendering modes, mirroring what Claude Code and Codex ship:
 
 - **Inline (default)** — renders on the main screen; finished messages print once into the terminal's native scrollback, so your terminal's scrollbar, mouse wheel, and search work as usual. The transcript stays in the terminal after you exit.
 - **Fullscreen** (`--alt-screen` flag, or `"alternateScreen": true` in preferences) — a fixed-height layout on the alternate screen buffer with in-app scrolling: mouse wheel and PgUp/PgDn, with a scroll indicator and automatic snap-back to bottom on new output. `--no-alt-screen` forces inline mode even if the preference is set.
