@@ -39,6 +39,7 @@ This repo (`llupRisinglll/omnicode`, remote `origin`) is a fork of `Nano-Collect
 - **Tags**: `pr-<num>` marks a branch with an open upstream PR; `pr-<num>-merged` marks that PR merged upstream — a skip signal for `scripts/update-fork-branches.sh` and for you (that branch's work already landed, don't re-open work on it).
 - **`scripts/update-fork-branches.sh [--no-verify]`** rebases the branch fleet (every local `rc/*` plus `fork/omnicode-identity` onto `upstream/main`, `fork/omnicode-theme` onto `origin/main`), force-pushes with `--force-with-lease`, and skips: the branch checked out in the main working dir, any branch already covered by a `pr-<num>-merged` tag, and branches already up to date. Read the script header before relying on its exact branch map — it changes as fork branches are added.
 - **Never switch the branch checked out in the main working dir** for background/parallel work — a saved preference (e.g. an omnicode theme) referencing data only present on another branch can crash startup on checkout. Do parallel work in a `git worktree` under the session scratchpad instead.
+- **Identity/docs/tooling changes merge to `main` via a PR branch as usual, but the commits must ALSO be kept on `fork/omnicode-identity`** (cherry-pick after merge) so `main` stays rebuildable from `upstream` + `rc/*` + `fork/*`.
 
 ### Upstream PR procedure
 
