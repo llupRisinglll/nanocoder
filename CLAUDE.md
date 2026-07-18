@@ -28,34 +28,6 @@ pnpm run test:benchmark                         # Run model benchmarks
 pnpm run build:vscode   # Build extension to assets/nanocoder-vscode.vsix
 ```
 
-## Fork Workflow
-
-This repo (`llupRisinglll/omnicode`, remote `origin`) is a fork of `Nano-Collective/nanocoder` (remote `upstream`). Two remotes means `gh pr view`/`gh pr edit` must be given `-R llupRisinglll/omnicode` explicitly — don't rely on default resolution. `gh pr create` may need `--head llupRisinglll:<branch>`.
-
-- **`main`** is upstream/main plus every `rc/*` and `fork/*` branch, merged in via PR — never push content to `main` directly.
-- **`rc/<feature>`** branches are upstream-PR candidates: based on `upstream/main`, nanocoder-branded (no fork identity), one feature per branch.
-- **`fork/*`** branches carry fork-identity work (omnicode theme, branding, docs) based on `main`.
-- **`staging`** is legacy/frozen — do not build on it.
-- **Tags**: `pr-<num>` marks a branch with an open upstream PR; `pr-<num>-merged` marks that PR merged upstream — a skip signal for `scripts/update-fork-branches.sh` and for you (that branch's work already landed, don't re-open work on it).
-- **`scripts/update-fork-branches.sh [--no-verify]`** rebases the branch fleet (every local `rc/*` plus `fork/omnicode-identity` onto `upstream/main`, `fork/omnicode-theme` onto `origin/main`), force-pushes with `--force-with-lease`, and skips: the branch checked out in the main working dir, any branch already covered by a `pr-<num>-merged` tag, and branches already up to date. Read the script header before relying on its exact branch map — it changes as fork branches are added.
-- **Never switch the branch checked out in the main working dir** for background/parallel work — a saved preference (e.g. an omnicode theme) referencing data only present on another branch can crash startup on checkout. Do parallel work in a `git worktree` under the session scratchpad instead.
-- **Identity/docs/tooling changes merge to `main` via a PR branch as usual, but the commits must ALSO be kept on `fork/omnicode-identity`** (cherry-pick after merge) so `main` stays rebuildable from `upstream` + `rc/*` + `fork/*`.
-
-### Upstream PR procedure
-
-- Read `.github/pull_request_template.md` and fill it out honestly — check only the boxes you actually verified.
-- Short conventional commits (`type: short description`), no AI attribution in commits or PR bodies.
-- PR bodies via a single-quoted heredoc (`--body "$(cat <<'EOF' ... EOF)"`) — never hand-escape backticks or `$`.
-- After opening a PR, tag the branch `pr-<num>`. When it merges upstream, retag `pr-<num>-merged`.
-
-## Theme system (omnicode branding)
-
-All omnicode-specific rendering must be gated on optional `Colors` fields (`assistantIcon`, `promptChar`, `textboxBackground`, `bannerGradient` — see `source/types/ui.ts`), never on the theme's name/id. The other ~50 bundled themes must keep rendering byte-identical when a themed component is touched.
-
-- `gradientColors` is legacy/inert on the banner — `welcome-message.tsx` reads `colors.bannerGradient ?? [colors.primary, colors.tool]`. Don't wire new code to `gradientColors`.
-- `resolveThemePreset()` (`source/config/themes.ts`) falls back to `defaultTheme` when a saved theme name isn't in `themes` (renamed/removed theme, or an older binary). Preserve that fallback — it's what keeps a stale saved preference from crashing startup.
-- When you touch a themed component, smoke-render it under both `omnicode` and `tokyo-night` with `ink-testing-library` (write throwaway specs under `.test-temp/`, delete after) to confirm the non-omnicode theme is unaffected.
-
 ## Project Overview
 
 Nanocoder is a React-based CLI coding agent built with Ink.js that provides local-first AI assistance with multiple provider support (Ollama, OpenRouter, any OpenAI-compatible API).
@@ -146,19 +118,7 @@ Loaders (`source/skills/bundle-loader.ts`, `source/skills/flat-loader.ts`) read 
 
 Bundle tools default to `tools_visibility: scoped`: hidden from the global tool list, visible only to the bundle's own subagent. Single-file tools default to `global`.
 
-**Custom command template engine**: parameters use `{{ name }}` substitution and `$ARGUMENTS` for the raw args string; conditional sections are `{{# name }}...{{/ name }}` (shown when the param is provided) and `{{^ name }}...{{/ name }}` (shown when omitted). `variables['args']` is always set, even without declared parameters — `$ARGUMENTS` depends on it. `expandSections` runs before `substituteTemplateVariables`.
-
 **Event triggers**: subscriptions on a member's frontmatter or a manifest's `subscribe:` block. The **per-project daemon** (`source/daemon/`, started by `nanocoder daemon start`) owns file-watch and cron sources. The interactive TUI never starts event sources. `confirm: true` on a subscription dispatches the triggered run in `plan` mode instead of `headless`.
-
-## Ink.js gotchas (hard-won lessons)
-
-- **Event loop is synchronous.** Ink's `App.js` `handleReadable` processes multiple keypresses in a for-loop with NO re-renders between events. React's `batchedUpdates` is a no-op in `react-reconciler@0.33.0` (React 19).
-- **`useInput` handlers are not deduplicated.** EventEmitter calls ALL registered listeners for every keypress. If two `useInput` hooks handle the same key, both fire. There is no stop-propagation.
-- **Stale refs are the default.** Refs updated during render are stale for events in the same `stdin.read()` block. Fix: update ref `.current` immediately at each mutation point inside the handler, before `setState`.
-- **Multiline input needs special handling.** Up/Down arrows in `TextInput` navigate between lines; history navigation (from `UserInput`) only fires on first/last line via the `onEdgeArrow` callback. Parent guards like `if (input.includes('\n')) return;` block all multiline behavior — avoid removing them without understanding the full callback chain.
-- **`<Static>` ignores ancestor `Box` padding** — it renders at column 0 regardless of nesting. Inline (default) live regions compensate with `marginLeft={-1}`. In fullscreen mode (`--alt-screen` / `disableStatic`), everything inherits root padding to column 1 and any component with `overflow="hidden"` (currently just `chat-history.tsx`) clips anything left of column 1 — fullscreen live boxes must NOT carry the `-1` compensation. Pattern: `marginLeft={fullscreen ? 0 : -1}`.
-- **`Box` defaults to `flexDirection="row"`.** A wrapper around components that return stacked fragments must explicitly declare `flexDirection="column"`, or children lay out side by side instead of stacked.
-- **Verify layout changes with a baseline structural comparison**, not eyeballing: render the same scene from `HEAD` (a temp worktree) and from the working tree, then diff the frames — check line count and line order, not just column offsets. Column-only diffing misses reflow bugs.
 
 ## Code Style
 
@@ -173,13 +133,6 @@ Bundle tools default to `tools_visibility: scoped`: hidden from the global tool 
 - **Location**: `source/**/*.spec.ts` files alongside source
 - **Serial execution**: Tests run one at a time
 - **Run single test**: `pnpm run test:ava source/path/to/file.spec.ts`
-- Biome's lint/format checks exclude `*.spec.ts`/`*.spec.tsx` by config (`biome.json`) — that's expected, not a gap to fix.
-- `models-dev-client.spec.ts` hits the live models.dev API and can flake in CI independent of your change.
-- On a `fork/*` branch with a rebranded welcome banner, expect `welcome-message.spec.tsx` failures on upstream-string assertions (e.g. version/`"Welcome to Nanocoder"` regexes); don't let them block an unrelated change on the same branch, but update the spec for the fork banner once you're the one touching it.
-
-## Manual Verification
-
-The user runs the CLI via a symlink into this repo's `dist/`. After any source change, run `pnpm run build` before asking the user to manually test — otherwise they're exercising stale compiled output.
 
 ## Development Modes
 

@@ -120,7 +120,7 @@ git fetch --all --prune
 # out so we never force-push over it.
 # ---------------------------------------------------------------------------
 
-MAIN_WORKDIR="/mnt/data/KSProjects/nanocoder"
+MAIN_WORKDIR="/mnt/data/KSProjects/NanoCollective/nanocoder"
 CHECKED_OUT_BRANCH="$(git -C "$MAIN_WORKDIR" branch --show-current || true)"
 echo "==> Main working dir ($MAIN_WORKDIR) currently has '$CHECKED_OUT_BRANCH' checked out (will be skipped)."
 
