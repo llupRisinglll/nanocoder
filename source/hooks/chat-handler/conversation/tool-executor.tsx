@@ -241,6 +241,15 @@ export const displayExecutedTool = async (
 				true,
 				iconDisplay,
 			);
+		} else if (isFileOp) {
+			// File operations get enhanced compact display with path + diff
+			await displayToolResult(
+				toolCall,
+				result,
+				toolManager,
+				addToChatQueue,
+				true,
+			);
 		} else {
 			options.onCompactToolCount?.(result.name);
 		}

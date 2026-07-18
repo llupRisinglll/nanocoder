@@ -1,15 +1,18 @@
 import {stripVTControlCharacters} from 'node:util';
 import {Box, Text} from 'ink';
 import React from 'react';
+import {computeDiffLines} from '@/components/diff-view/compute';
+import DiffView from '@/components/diff-view/DiffView';
 import {ErrorMessage} from '@/components/message-box';
 import ToolMessage from '@/components/tool-message';
+import {getCompactDiffMaxLines} from '@/config/preferences';
+import {DEFAULT_TERMINAL_COLUMNS} from '@/constants';
 import {useNonInteractiveRender} from '@/hooks/useNonInteractiveRender';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import {generateKey} from '@/session/key-generator';
 import type {ToolManager} from '@/tools/tool-manager';
 import type {ToolCall, ToolResult} from '@/types/index';
-import {areLinesSimlar, computeInlineDiff} from '@/utils/inline-diff';
 import {parseToolArguments} from '@/utils/tool-args-parser';
 
 /**
@@ -87,190 +90,37 @@ function CompactFileResult({
 
 	const displayName = toolName === 'write_file' ? 'Write' : 'Edit';
 
-	// Build diff lines
-	const diffElements: React.ReactElement[] = [];
-	const maxLines = 6;
+	const terminalWidth = process.stdout.columns || DEFAULT_TERMINAL_COLUMNS;
+	const configuredMaxLines = getCompactDiffMaxLines();
+	const maxLines = configuredMaxLines === 0 ? undefined : configuredMaxLines;
+
+	let diffBody: React.ReactElement | null = null;
 
 	if (
 		(toolName === 'string_replace' || toolName === 'diff_edit') &&
 		oldStr &&
 		newStr
 	) {
-		// Build a unified diff with inline word-level highlighting
-		let oldIdx = 0;
-		let newIdx = 0;
-
-		while (
-			(oldIdx < oldLines.length || newIdx < newLines.length) &&
-			diffElements.length < maxLines
-		) {
-			const oldLine = oldIdx < oldLines.length ? oldLines[oldIdx] : null;
-			const newLine = newIdx < newLines.length ? newLines[newIdx] : null;
-
-			if (oldLine !== null && newLine !== null && oldLine === newLine) {
-				// Unchanged line \u2014 context
-				const lineNumStr = String(newIdx + 1).padStart(4, ' ');
-				diffElements.push(
-					<Box key={`ctx-${newIdx}`}>
-						<Text wrap="truncate-end">
-							{lineNumStr} {newLine}
-						</Text>
-					</Box>,
-				);
-				oldIdx++;
-				newIdx++;
-			} else if (
-				oldLine !== null &&
-				newLine !== null &&
-				areLinesSimlar(oldLine, newLine)
-			) {
-				// Similar lines \u2014 word diff matching OpenClaude's exact structure
-				const segments = computeInlineDiff(oldLine, newLine);
-				const lineNumStr = String(newIdx + 1).padStart(4, ' ');
-
-				// Build content as React nodes: plain strings for unchanged text
-				// (inherits outer line bg), <Text> with word-level bg only for
-				// changed segments. Ink's squash-text-nodes applies the inner
-				// transform to ink-text children but leaves #text nodes raw,
-				// so the outer bg covers unchanged parts while the inner bg
-				// overrides it on changed words \u2014 the "highlight within highlight".
-				const oldParts: React.ReactNode[] = [];
-				for (const s of segments) {
-					if (s.type === 'added') continue; // skip additions in old view
-					if (s.type === 'removed') {
-						// Changed word: inner Text with more-intense word-level bg
-						oldParts.push(
-							<Text
-								key={`old-r-${oldParts.length}`}
-								backgroundColor={colors.diffRemovedWord}
-							>
-								{s.text}
-							</Text>,
-						);
-					} else {
-						// Unchanged: plain string \u2014 inherits outer line bg
-						oldParts.push(s.text);
-					}
-				}
-
-				const newParts: React.ReactNode[] = [];
-				for (const s of segments) {
-					if (s.type === 'removed') continue; // skip removals in new view
-					if (s.type === 'added') {
-						// Changed word: inner Text with more-intense word-level bg
-						newParts.push(
-							<Text
-								key={`new-a-${newParts.length}`}
-								backgroundColor={colors.diffAddedWord}
-							>
-								{s.text}
-							</Text>,
-						);
-					} else {
-						// Unchanged: plain string \u2014 inherits outer line bg
-						newParts.push(s.text);
-					}
-				}
-
-				// Removed line: prefix + content, outer has line bg + text color
-				diffElements.push(
-					<Box key={`rem-${oldIdx}`} flexDirection="row">
-						<Text
-							backgroundColor={colors.diffRemoved}
-							color={colors.diffRemovedText}
-						>
-							{lineNumStr} -{' '}
-						</Text>
-						<Text
-							wrap="truncate-end"
-							backgroundColor={colors.diffRemoved}
-							color={colors.diffRemovedText}
-						>
-							{oldParts}
-						</Text>
-					</Box>,
-				);
-
-				// Added line: prefix + content, outer has line bg + text color
-				diffElements.push(
-					<Box key={`add-${newIdx}`} flexDirection="row">
-						<Text
-							backgroundColor={colors.diffAdded}
-							color={colors.diffAddedText}
-						>
-							{lineNumStr} +{' '}
-						</Text>
-						<Text
-							wrap="truncate-end"
-							backgroundColor={colors.diffAdded}
-							color={colors.diffAddedText}
-						>
-							{newParts}
-						</Text>
-					</Box>,
-				);
-				oldIdx++;
-				newIdx++;
-			} else if (oldLine !== null) {
-				// Removed line — entire line red
-				const lineNumStr = String(oldIdx + 1).padStart(4, ' ');
-				diffElements.push(
-					<Box key={`del-${oldIdx}`}>
-						<Text
-							backgroundColor={colors.diffRemoved}
-							color={colors.diffRemovedText}
-						>
-							{lineNumStr} -{' '}
-						</Text>
-						<Text
-							wrap="truncate-end"
-							backgroundColor={colors.diffRemoved}
-							color={colors.diffRemovedText}
-						>
-							{oldLine}
-						</Text>
-					</Box>,
-				);
-				oldIdx++;
-			} else if (newLine !== null) {
-				// Added line — entire line green
-				const lineNumStr = String(newIdx + 1).padStart(4, ' ');
-				diffElements.push(
-					<Box key={`ins-${newIdx}`}>
-						<Text
-							backgroundColor={colors.diffAdded}
-							color={colors.diffAddedText}
-						>
-							{lineNumStr} +{' '}
-						</Text>
-						<Text
-							wrap="truncate-end"
-							backgroundColor={colors.diffAdded}
-							color={colors.diffAddedText}
-						>
-							{newLine}
-						</Text>
-					</Box>,
-				);
-				newIdx++;
-			}
-		}
-
-		const remaining = oldLines.length - oldIdx + (newLines.length - newIdx);
-		if (remaining > 0) {
-			diffElements.push(
-				<Text key="more" color={colors.secondary}>
-					...{remaining} more line{remaining !== 1 ? 's' : ''}
-				</Text>,
-			);
-		}
+		const diffLines = computeDiffLines(oldStr, newStr);
+		diffBody = (
+			<DiffView
+				lines={diffLines}
+				width={terminalWidth}
+				maxLines={maxLines}
+				filePath={path}
+			/>
+		);
 	} else if (toolName === 'write_file' && newStr) {
-		// For new/rewritten files, show first few lines
+		// No prior file content is available at this call site — write_file
+		// invalidates the read cache before the compact result renders, so
+		// there's nothing to diff against. Keep the existing first-N-lines
+		// preview rather than inventing snapshot plumbing to fabricate an
+		// all-additions diff.
 		const previewCount = Math.min(newLines.length, 3);
-
+		const previewElements: React.ReactElement[] = [];
 		for (let i = 0; i < previewCount; i++) {
 			const lineNumStr = String(i + 1).padStart(4, ' ');
-			diffElements.push(
+			previewElements.push(
 				<Box key={`line-${i}`}>
 					<Text wrap="truncate-end">
 						{lineNumStr} {newLines[i]}
@@ -279,12 +129,13 @@ function CompactFileResult({
 			);
 		}
 		if (newLines.length > 3) {
-			diffElements.push(
+			previewElements.push(
 				<Text key="more" color={colors.secondary}>
 					...{newLines.length - 3} more lines
 				</Text>,
 			);
 		}
+		diffBody = <Box flexDirection="column">{previewElements}</Box>;
 	}
 
 	const message = (
@@ -303,9 +154,7 @@ function CompactFileResult({
 				<Text color={colors.secondary}> {'\u23bf'} </Text>
 				<Text color={colors.text}>{rangeDesc}</Text>
 			</Box>
-			{diffElements.length > 0 && (
-				<Box flexDirection="column">{diffElements}</Box>
-			)}
+			{diffBody}
 		</Box>
 	);
 
