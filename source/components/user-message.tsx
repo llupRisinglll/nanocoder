@@ -15,6 +15,25 @@ function stripVSCodeContext(message: string): string {
 	);
 }
 
+// Display-only cap for very long messages (e.g. expanded large pastes): show
+// head and tail with a hidden-lines marker. The full text still goes to the LLM.
+const MAX_DISPLAY_CHARS = 10_000;
+const DISPLAY_HEAD_CHARS = 8_000;
+const DISPLAY_TAIL_CHARS = 1_500;
+
+function capForDisplay(text: string): string {
+	if (text.length <= MAX_DISPLAY_CHARS) {
+		return text;
+	}
+
+	const head = text.slice(0, DISPLAY_HEAD_CHARS);
+	const tail = text.slice(-DISPLAY_TAIL_CHARS);
+	const hiddenLines = text
+		.slice(DISPLAY_HEAD_CHARS, -DISPLAY_TAIL_CHARS)
+		.split('\n').length;
+	return `${head}\n… +${hiddenLines} lines …\n${tail}`;
+}
+
 // Parse a line and return segments with file placeholders highlighted
 function parseLineWithPlaceholders(line: string) {
 	const segments: Array<{text: string; isPlaceholder: boolean}> = [];
@@ -73,7 +92,7 @@ export default memo(function UserMessage({
 	// Strip VS Code context blocks and pre-wrap to avoid Ink's trim:false
 	// leaving leading spaces on wrapped lines
 	const displayMessage = wrapWithTrimmedContinuations(
-		stripVSCodeContext(message),
+		capForDisplay(stripVSCodeContext(message)),
 		textWidth,
 	);
 	const lines = displayMessage.split('\n');

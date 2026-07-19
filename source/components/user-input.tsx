@@ -35,7 +35,10 @@ import {
 	getFileCompletions,
 } from '@/utils/file-autocomplete';
 import {handleFileMention} from '@/utils/file-mention-handler';
-import {assemblePrompt} from '@/utils/prompt-processor';
+import {
+	assemblePrompt,
+	expandPastePlaceholdersForDisplay,
+} from '@/utils/prompt-processor';
 import {getVisualLineSegments} from '@/utils/text-wrapping';
 import type {ActiveEditorState} from '@/vscode/vscode-server';
 
@@ -388,7 +391,8 @@ export default function UserInput({
 
 		let images = attachments;
 		let assembled = assemblePrompt(currentState);
-		let display = currentState.displayValue;
+		// Chat history shows the real pasted text, not the [Paste #N] placeholder
+		let display = expandPastePlaceholdersForDisplay(currentState);
 
 		// Image file paths the user typed, pasted, or dragged into the terminal
 		// (often quoted, mixed in with prose) become attachments and are stripped

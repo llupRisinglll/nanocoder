@@ -37,6 +37,31 @@ export function getSubagentDescriptions(): string {
 }
 
 /**
+ * Expand paste placeholders back to their original text for chat-history
+ * display. File mentions stay as [@file] chips — only pastes expand, so the
+ * transcript shows what the user actually sent without inlining file bodies.
+ */
+export function expandPastePlaceholdersForDisplay(
+	inputState: InputState,
+): string {
+	let display = inputState.displayValue;
+
+	Object.values(inputState.placeholderContent).forEach(placeholderContent => {
+		if (
+			placeholderContent.type === PlaceholderType.PASTE &&
+			placeholderContent.displayText
+		) {
+			display = display.replace(
+				placeholderContent.displayText,
+				placeholderContent.content,
+			);
+		}
+	});
+
+	return display;
+}
+
+/**
  * Assemble the final prompt by replacing all placeholders with their full content
  * This function is called before sending the prompt to the AI
  */
