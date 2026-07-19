@@ -18,13 +18,12 @@ Omnicode exists because switching between CLI coding tools got tiring: one tool 
 
 Omnicode is a fork of [Nano-Collective/nanocoder](https://github.com/Nano-Collective/nanocoder) — not a rewrite, not a clone. It contains everything in Nanocoder, plus changes that haven't been released upstream yet.
 
-New work lands on `rc/*` branches here first, then gets proposed back to the original repo once it's finished and proven: the multiline cursor navigation work is already merged upstream, and the TUI screen modes work has an open upstream PR. Omnicode is where Nanocoder's next release lives before it's a release — the same relationship Neovim has to Vim.
+New work lands on `rc/*` branches here first, then gets proposed back to the original repo once it's finished and proven: the multiline cursor navigation and dual TUI screen modes work are already merged upstream. Omnicode is where Nanocoder's next release lives before it's a release — the same relationship Neovim has to Vim.
 
 ## What Omnicode has that Nanocoder doesn't (yet)
 
 | Feature | Upstream status |
 |---|---|
-| Dual TUI screen modes — inline default / `--alt-screen` fullscreen with in-app scrolling, reliable `/clear`, graceful exit | PR open upstream |
 | Provider config robustness — save no longer wipes providers; startup falls back to a working provider instead of freezing | PR open upstream |
 | Session resume/continue flags (`--resume`/`--continue`) | PR open upstream |
 | Omnicode theme + chat layout overhaul (rounded input/message boxes, merged tool-activity lines, truncated output previews) | Fork-exclusive |
@@ -33,6 +32,7 @@ New work lands on `rc/*` branches here first, then gets proposed back to the ori
 | Compact file diff display with inline word highlighting | Incubating on `rc/compact-diff` |
 | Optimized welcome header + conditional tips display | Incubating on `rc/welcome-header` |
 | `$ARGUMENTS` pass-through for commands without declared parameters | Incubating on `rc/arguments-passthrough` |
+| Atomic paste placeholders — cursor can't land inside `[Paste #N]`, backspace removes it whole, chat history shows the real pasted text | Incubating on `rc/paste-placeholders` |
 
 #### Previews
 
