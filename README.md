@@ -34,6 +34,7 @@ New work lands on `rc/*` branches here first, then gets proposed back to the ori
 | `$ARGUMENTS` pass-through for commands without declared parameters | Incubating on `rc/arguments-passthrough` |
 | Atomic paste placeholders — cursor can't land inside `[Paste #N]`, backspace removes it whole, chat history shows the real pasted text | Incubating on `rc/paste-placeholders` |
 | Command menu descriptions — completion list shows each command's description, grey unselected rows | Incubating on `rc/command-menu-descriptions` |
+| Tabbed settings dialog — categorized tabs, fuzzy search field, title-shape-aware tab bar | Incubating on `rc/settings-tabs` |
 
 #### Previews
 
