@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import {Text, useInput} from 'ink';
 import {useEffect, useRef, useState} from 'react';
-import {useTheme} from '@/hooks/useTheme';
+import {useOptionalTheme} from '@/hooks/useTheme';
 import {
 	findSpanForBackspace,
 	getPlaceholderSpans,
@@ -42,7 +42,7 @@ function TextInput({
 	handleEnter = true,
 	onEdgeArrow,
 }: Props) {
-	const {colors} = useTheme();
+	const {colors} = useOptionalTheme();
 	const [state, setState] = useState({
 		cursorOffset: (originalValue || '').length,
 		cursorWidth: 0,
