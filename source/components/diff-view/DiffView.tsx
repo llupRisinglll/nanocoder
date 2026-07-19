@@ -165,9 +165,16 @@ export default function DiffView({
 		}
 	}
 
-	// `{old} {new} {sigil} ` — two number columns, each followed by a space,
-	// the sigil, and a trailing space before content.
-	const gutterWidth = oldWidth + newWidth + 4;
+	// `{old} {new}` is a single combined number-field span shared by every
+	// row: context rows fill both slots (dual old/new numbers side by side);
+	// remove/add-only rows right-align their one number across the *whole*
+	// span instead of flush in just their own slot — otherwise a removed
+	// line's number sits flush-left (old slot) while an added line's number
+	// sits flush-right (new slot), so the two never share a gutter column.
+	const numberFieldWidth = oldWidth + 1 + newWidth;
+	// `{numberField} {sigil} ` — the number field, a space, the sigil, and a
+	// trailing space before content.
+	const gutterWidth = numberFieldWidth + 3;
 	const contentWidth = Math.max(width - gutterWidth, 1);
 
 	const rowElements: React.ReactElement[] = [];
@@ -175,15 +182,22 @@ export default function DiffView({
 	visibleLines.forEach((line, lineIndex) => {
 		const {bg, text: lineText, wordBg} = lineColors(line.kind, colors);
 		const sigil = sigilFor(line.kind);
-		const oldStr =
-			line.oldLineNo !== undefined
-				? String(line.oldLineNo).padStart(oldWidth)
-				: ' '.repeat(oldWidth);
-		const newStr =
-			line.newLineNo !== undefined
-				? String(line.newLineNo).padStart(newWidth)
-				: ' '.repeat(newWidth);
-		const gutterText = `${oldStr} ${newStr} ${sigil} `;
+		const hasOld = line.oldLineNo !== undefined;
+		const hasNew = line.newLineNo !== undefined;
+		let numberField: string;
+		if (hasOld && hasNew) {
+			// Context line: both sides shown, side by side (unchanged design).
+			const oldStr = String(line.oldLineNo).padStart(oldWidth);
+			const newStr = String(line.newLineNo).padStart(newWidth);
+			numberField = `${oldStr} ${newStr}`;
+		} else if (hasOld) {
+			numberField = String(line.oldLineNo).padStart(numberFieldWidth);
+		} else if (hasNew) {
+			numberField = String(line.newLineNo).padStart(numberFieldWidth);
+		} else {
+			numberField = ' '.repeat(numberFieldWidth);
+		}
+		const gutterText = `${numberField} ${sigil} `;
 
 		const parts = segmentsForLine(line);
 		const rows = wrapParts(parts, contentWidth);

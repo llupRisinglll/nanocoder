@@ -51,6 +51,57 @@ test('DiffView shows correct dual gutter numbers for a mixed hunk', t => {
 });
 
 // ============================================================================
+// Single shared gutter alignment (remove/add rows, no dual context numbers)
+// ============================================================================
+
+test('DiffView right-aligns remove/add line numbers to one shared gutter column', t => {
+	// A pure rewrite (no context lines): 1 removed line (old #1, single
+	// digit) vs 2 added lines, one with a single-digit number (new #1) and
+	// one with a two-digit number (new #10) — forcing oldWidth !== newWidth.
+	// The removed line's number and the "new #1" line's number both have one
+	// digit, so — once numbers share a single right-aligned gutter column —
+	// they must start at the *same* column index. Before the fix, the
+	// removed number lived in its own flush-left old-number slot (index 0)
+	// while added numbers lived right-aligned in the new-number slot, so
+	// this would fail.
+	const lines: DiffLine[] = [
+		{kind: 'remove', oldLineNo: 1, text: 'removed line'},
+		{kind: 'add', newLineNo: 1, text: 'added line one'},
+		{kind: 'add', newLineNo: 10, text: 'added line ten'},
+	];
+
+	const {lastFrame} = render(
+		<MockThemeProvider>
+			<DiffView lines={lines} width={40} />
+		</MockThemeProvider>,
+	);
+
+	const output = lastFrame() ?? '';
+	const rows = output.split('\n').filter(line => line.trim().length > 0);
+	t.is(rows.length, 3);
+
+	const [removeRow, addRow1, addRow10] = rows;
+	const digitStart = (row: string) => row.search(/\d/);
+
+	// Sigils land in one shared column across all rows.
+	const sigilColumns = rows.map(row => row.indexOf(row.includes('-') ? '-' : '+'));
+	t.true(sigilColumns.every(col => col === sigilColumns[0]));
+
+	// Same digit count (1 and 1) => same gutter start column.
+	t.is(
+		digitStart(removeRow!),
+		digitStart(addRow1!),
+		`removed-line number and single-digit added-line number must share one right-aligned gutter column; rows: ${JSON.stringify(
+			[removeRow, addRow1],
+		)}`,
+	);
+
+	// The two-digit added number starts one column earlier than its
+	// single-digit sibling, since both end at the same right-aligned edge.
+	t.is(digitStart(addRow10!), digitStart(addRow1!) - 1);
+});
+
+// ============================================================================
 // Sigils
 // ============================================================================
 
