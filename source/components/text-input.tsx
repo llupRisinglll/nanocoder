@@ -203,10 +203,7 @@ function TextInput({
 					if (showCursor) {
 						nextCursorOffset = snapOutOfPlaceholder(
 							originalValueRef.current,
-							moveToPrevWord(
-								originalValueRef.current,
-								cursorOffsetRef.current,
-							),
+							moveToPrevWord(originalValueRef.current, cursorOffsetRef.current),
 							'left',
 						);
 					}
@@ -215,10 +212,7 @@ function TextInput({
 					if (showCursor) {
 						nextCursorOffset = snapOutOfPlaceholder(
 							originalValueRef.current,
-							moveToNextWord(
-								originalValueRef.current,
-								cursorOffsetRef.current,
-							),
+							moveToNextWord(originalValueRef.current, cursorOffsetRef.current),
 							'right',
 						);
 					}
