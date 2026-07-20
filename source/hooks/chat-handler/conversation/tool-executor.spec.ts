@@ -1,5 +1,5 @@
 import test from 'ava';
-import {executeToolsDirectly} from './tool-executor.js';
+import {displayExecutedTool, executeToolsDirectly} from './tool-executor.js';
 import type {ToolCall, ToolResult} from '@/types/core';
 
 // ============================================================================
@@ -199,6 +199,85 @@ test('executeToolsDirectly - executes tool successfully', async t => {
 	t.is(results[0].role, 'tool');
 	t.is(results[0].name, 'test_tool');
 	t.true(results[0].content.includes('Tool executed'));
+});
+
+test('displayExecutedTool - omnicode compact execute_bash collapses into grouped count', async t => {
+	const conversationStateManager = createMockConversationStateManager();
+	const addToChatQueueCalls: unknown[] = [];
+	const countedTools: string[] = [];
+
+	const toolCall: ToolCall = {
+		id: 'call_bash_1',
+		function: {
+			name: 'execute_bash',
+			arguments: '{"command": "echo one"}',
+		},
+	};
+	const result: ToolResult = {
+		tool_call_id: toolCall.id,
+		role: 'tool',
+		name: 'execute_bash',
+		content: 'EXIT_CODE: 0\none',
+	};
+
+	await displayExecutedTool(
+		{toolCall, result},
+		null,
+		component => {
+			addToChatQueueCalls.push(component);
+		},
+		conversationStateManager as any,
+		{
+			compactDisplay: true,
+			iconTheme: true,
+			onCompactToolCount: toolName => {
+				countedTools.push(toolName);
+			},
+		},
+	);
+
+	t.deepEqual(countedTools, ['execute_bash']);
+	t.is(addToChatQueueCalls.length, 0);
+});
+
+test('displayExecutedTool - omnicode non-interactive execute_bash still collapses into grouped count', async t => {
+	const conversationStateManager = createMockConversationStateManager();
+	const addToChatQueueCalls: unknown[] = [];
+	const countedTools: string[] = [];
+
+	const toolCall: ToolCall = {
+		id: 'call_bash_noninteractive',
+		function: {
+			name: 'execute_bash',
+			arguments: '{"command": "docker ps"}',
+		},
+	};
+	const result: ToolResult = {
+		tool_call_id: toolCall.id,
+		role: 'tool',
+		name: 'execute_bash',
+		content: 'EXIT_CODE: 0\ncontainer',
+	};
+
+	await displayExecutedTool(
+		{toolCall, result},
+		null,
+		component => {
+			addToChatQueueCalls.push(component);
+		},
+		conversationStateManager as any,
+		{
+			compactDisplay: true,
+			iconTheme: true,
+			nonInteractiveMode: true,
+			onCompactToolCount: toolName => {
+				countedTools.push(toolName);
+			},
+		},
+	);
+
+	t.deepEqual(countedTools, ['execute_bash']);
+	t.is(addToChatQueueCalls.length, 0);
 });
 
 test('executeToolsDirectly - executes multiple read-only tools in parallel', async t => {

@@ -16,6 +16,14 @@ function stripVSCodeContext(message: string): string {
 	);
 }
 
+function collapseCustomCommandPrompt(message: string): string {
+	const match = message.match(
+		/^\[Executing custom command: \/(.+?)\]\s*(?:\n|$)/,
+	);
+	if (!match) return message;
+	return `/${match[1]}`;
+}
+
 // Display-only cap for very long messages (e.g. expanded large pastes): show
 // head and tail with a hidden-lines marker. The full text still goes to the LLM.
 const MAX_DISPLAY_CHARS = 10_000;
@@ -99,7 +107,7 @@ export default memo(function UserMessage({
 	// Strip VS Code context blocks and pre-wrap to avoid Ink's trim:false
 	// leaving leading spaces on wrapped lines
 	const displayMessage = wrapWithTrimmedContinuations(
-		capForDisplay(stripVSCodeContext(message)),
+		capForDisplay(collapseCustomCommandPrompt(stripVSCodeContext(message))),
 		textWidth,
 	);
 	const lines = displayMessage.split('\n');

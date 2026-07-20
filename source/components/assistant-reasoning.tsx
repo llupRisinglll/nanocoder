@@ -8,7 +8,7 @@ import {Colors, parseMarkdown} from '@/markdown-parser/index';
 import type {AssistantReasoningProps} from '@/types/index';
 import {wrapWithTrimmedContinuations} from '@/utils/text-wrapping';
 import {calculateTokens} from '@/utils/token-calculator';
-import {getGroupedCompactDescription} from '@/utils/tool-result-display';
+import {CompactToolCountsLine} from '@/utils/tool-result-display';
 
 // Module-level store for reasoning start times, shared across components.
 // StreamingReasoning sets it when reasoning starts; AssistantReasoning reads it.
@@ -104,7 +104,7 @@ export default function AssistantReasoning({
 					</Text>
 				)}
 				{!expand && !nonInteractive && (
-					<Text color={colors.secondary}>{'  '}ctrl+r to expand</Text>
+					<Text color={colors.secondary}>{'  '}(ctrl+r to expand)</Text>
 				)}
 			</Box>
 			{expand && (
@@ -126,14 +126,11 @@ export default function AssistantReasoning({
 }
 
 /**
- * Omnicode-only: the merged, Claude-Code-style summary line for a run of
- * consecutive collapsed Thought headers (optionally followed by tool
- * tallies), e.g. "⚙ Thought for 5s, read 1 file  ctrl+r to expand". Built by
- * conversation-loop's pendingThought accumulator so a run of thinking turns
- * (with or without a trailing tool tally) collapses into one grey line
- * instead of stacking a separate header per turn. Every other theme never
- * constructs this component — reasoning there always renders through the
- * per-turn AssistantReasoning header above.
+ * Omnicode-only: the collapsed summary for a run of consecutive Thought
+ * headers. If tools ran after the thoughts, render their grouped summary first
+ * and keep the Thought line separate so reasoning is not counted as a tool.
+ * Every other theme never constructs this component — reasoning there always
+ * renders through the per-turn AssistantReasoning header above.
  */
 export function ThoughtRunSummary({
 	totalMs,
@@ -148,22 +145,21 @@ export function ThoughtRunSummary({
 	const totalSeconds = Math.floor(totalMs / 1000);
 	const isFastThinking = totalMs > 0 && totalSeconds < 1;
 	const durationLabel = isFastThinking ? '<1s' : formatElapsed(totalSeconds);
-
-	const toolSummary = toolCounts
-		? Object.entries(toolCounts)
-				.map(([toolName, count]) =>
-					getGroupedCompactDescription(toolName, count).toLowerCase(),
-				)
-				.join(', ')
-		: '';
+	const toolEntries = toolCounts ? Object.entries(toolCounts) : [];
 
 	return (
-		<Box paddingLeft={2} marginBottom={1}>
-			<Text color={colors.secondary}>
-				{'⚙'} Thought for {durationLabel}
-				{toolSummary ? `, ${toolSummary}` : ''}
-				{!nonInteractive ? '  ctrl+r to expand' : ''}
-			</Text>
+		<Box flexDirection="column" marginBottom={1}>
+			{toolEntries.length > 0 && (
+				<Box>
+					<CompactToolCountsLine entries={toolEntries} />
+				</Box>
+			)}
+			<Box paddingLeft={2}>
+				<Text color={colors.secondary}>
+					{'⚙'} Thought for {durationLabel}
+					{!nonInteractive ? ' (ctrl+r to expand)' : ''}
+				</Text>
+			</Box>
 		</Box>
 	);
 }

@@ -635,20 +635,19 @@ test('LiveCompactCounts - renders tool counts', t => {
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /Read 3 files/);
-	t.regex(output!, /Searched for 2 patterns/);
+	t.regex(output!, /read_file ×3, search_file_contents ×2/);
 	unmount();
 });
 
-test('LiveCompactCounts - renders single count without plural', t => {
+test('LiveCompactCounts - renders single count without multiplier', t => {
 	const {lastFrame, unmount} = renderWithTheme(
 		<LiveCompactCounts counts={{write_file: 1}} />,
 	);
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /Wrote 1 file/);
-	t.notRegex(output!, /files/);
+	t.regex(output!, /write_file/);
+	t.notRegex(output!, /×1/);
 	unmount();
 });
 
@@ -662,7 +661,7 @@ test('LiveCompactCounts - renders empty counts without error', t => {
 	unmount();
 });
 
-test('LiveCompactCounts - renders hammer icon for each entry', t => {
+test('LiveCompactCounts - renders a single hammer for grouped entries', t => {
 	const {lastFrame, unmount} = renderWithTheme(
 		<LiveCompactCounts counts={{read_file: 1, execute_bash: 2}} />,
 	);
@@ -670,7 +669,8 @@ test('LiveCompactCounts - renders hammer icon for each entry', t => {
 	const output = lastFrame();
 	t.truthy(output);
 	const hammerCount = (output!.match(/\u2692/g) || []).length;
-	t.is(hammerCount, 2);
+	t.is(hammerCount, 1);
+	t.regex(output!, /read_file, execute_bash ×2/);
 	unmount();
 });
 
@@ -678,32 +678,52 @@ test('LiveCompactCounts - renders hammer icon for each entry', t => {
 // Compact Description Mapping Tests (via displayToolResult compact mode)
 // ============================================================================
 
-test('displayToolResult compact - read_file shows compact description', t => {
+test('displayToolResult compact - read_file shows compact tool name', async t => {
 	const {addToChatQueue, queue} = createMockAddToChatQueue();
 	const toolCall = createMockToolCall('1', 'read_file', {path: '/test.ts'});
 	const result = createMockToolResult('1', 'read_file', 'file contents');
 
-	displayToolResult(toolCall, result, null, addToChatQueue, true);
+	await displayToolResult(toolCall, result, null, addToChatQueue, true);
 
 	t.is(queue.length, 1);
+	const {lastFrame, unmount} = renderWithTheme(
+		queue[0] as React.ReactElement,
+	);
+	t.regex(lastFrame()!, /read_file/);
+	unmount();
 });
 
-test('displayToolResult compact - execute_bash shows compact description', t => {
+test('displayToolResult compact - execute_bash does not show command detail for icon theme', async t => {
 	const {addToChatQueue, queue} = createMockAddToChatQueue();
 	const toolCall = createMockToolCall('1', 'execute_bash', {command: 'ls'});
 	const result = createMockToolResult('1', 'execute_bash', 'output');
 
-	displayToolResult(toolCall, result, null, addToChatQueue, true);
+	await displayToolResult(toolCall, result, null, addToChatQueue, true, {
+		iconTheme: true,
+	});
 
 	t.is(queue.length, 1);
+	const {lastFrame, unmount} = renderWithTheme(
+		queue[0] as React.ReactElement,
+	);
+	const output = lastFrame();
+	t.regex(output!, /execute_bash/);
+	t.notRegex(output!, /ls/);
+	t.notRegex(output!, /Ran/);
+	unmount();
 });
 
-test('displayToolResult compact - unknown tool uses default description', t => {
+test('displayToolResult compact - unknown tool uses tool name', async t => {
 	const {addToChatQueue, queue} = createMockAddToChatQueue();
 	const toolCall = createMockToolCall('1', 'custom_mcp_tool', {});
 	const result = createMockToolResult('1', 'custom_mcp_tool', 'output');
 
-	displayToolResult(toolCall, result, null, addToChatQueue, true);
+	await displayToolResult(toolCall, result, null, addToChatQueue, true);
 
 	t.is(queue.length, 1);
+	const {lastFrame, unmount} = renderWithTheme(
+		queue[0] as React.ReactElement,
+	);
+	t.regex(lastFrame()!, /custom_mcp_tool/);
+	unmount();
 });

@@ -210,6 +210,13 @@ export const displayExecutedTool = async (
 				true,
 				iconDisplay,
 			);
+		} else if (isDetailedOmnicodeOp && result.name === 'execute_bash') {
+			// Bash commonly appears in long same-tool runs (setup scripts,
+			// worktree creation, port checks). In Omnicode compact mode, collapse
+			// those into the existing grouped tool activity summary instead of
+			// printing every command preview by default. This must run before the
+			// nonInteractiveMode branch, which otherwise renders per-tool detail.
+			options.onCompactToolCount?.(result.name);
 		} else if (options.nonInteractiveMode) {
 			await displayToolResult(
 				toolCall,
@@ -240,15 +247,6 @@ export const displayExecutedTool = async (
 				addToChatQueue,
 				true,
 				iconDisplay,
-			);
-		} else if (isFileOp) {
-			// File operations get enhanced compact display with path + diff
-			await displayToolResult(
-				toolCall,
-				result,
-				toolManager,
-				addToChatQueue,
-				true,
 			);
 		} else {
 			options.onCompactToolCount?.(result.name);
