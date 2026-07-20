@@ -222,6 +222,27 @@ Each of those drops a stub file in the right flat dir and chains into an
 AI-assisted design conversation so the model can help fill in the
 frontmatter and body.
 
+## How the model discovers skills
+
+The AI does not just see skills through the `/skills` command — it also knows
+about them during your conversation. This happens in two ways:
+
+| How the model learns about skills | What it does |
+|---|---|
+| **System prompt listing** | Every loaded skill's name and description is listed in the system prompt under "AVAILABLE SKILLS". The model sees this at the start of every turn. |
+| **The `skill` tool** | The model can call the `skill` tool to load a skill's full instructions on demand. This is like opening the skill's documentation before starting work. |
+
+When a task matches a skill, the model can call `skill` with the skill name
+to pull up the detailed guidance — including commands, subagent prompts, and
+tool descriptions from that skill's bundle.
+
+This "progressive disclosure" pattern means the model does not have to read
+every skill's full content every turn (which would waste context). It sees
+the short descriptions, then loads the full details only when relevant.
+
+For more on how the tool name (`skill`) maps to `Skill` on Claude models,
+see [Tool Naming Conventions](../architecture/tool-names.md).
+
 ## Sharing skills across repos
 
 Skills load from three levels, highest priority first:
