@@ -5,57 +5,126 @@ import UserMessage from '@/components/user-message';
 import {getAppConfig} from '@/config/index';
 import {CommandIntegration} from '@/custom-commands/command-integration';
 import {generateKey} from '@/session/key-generator';
+import {formatAvailableSkillsForPrompt} from '@/skills/prompt';
 import {getTuneToolMode} from '@/types/config';
 import type {ImageAttachment, Message} from '@/types/core';
 import {MessageBuilder} from '@/utils/message-builder';
 import {infoMsg} from '@/utils/message-factory';
-import {buildSystemPrompt, setLastBuiltPrompt} from '@/utils/prompt-builder';
+import {
+	type BuiltPromptBlock,
+	buildSystemPromptBlocks,
+	setLastBuiltPrompt,
+} from '@/utils/prompt-builder';
 import {processAssistantResponse} from './conversation/conversation-loop';
 import {createResetStreamingState} from './state/streaming-state';
 import type {ChatHandlerReturn, UseChatHandlerProps} from './types';
 import {displayError as displayErrorHelper} from './utils/message-helpers';
 
+type CachedPrompt = {
+	prompt: string;
+	blocks: BuiltPromptBlock[];
+};
+
+type CachedPromptInput = string | CachedPrompt | null;
+
+function normalizeCachedPrompt(input: CachedPromptInput): CachedPrompt | null {
+	if (!input) return null;
+	if (typeof input === 'string') {
+		return {
+			prompt: input,
+			blocks: [{text: input, cacheScope: 'volatile'}],
+		};
+	}
+	return input;
+}
+
+function buildSkillsPromptBlock(): BuiltPromptBlock | null {
+	const text = formatAvailableSkillsForPrompt();
+	return text ? {text, cacheScope: 'stable'} : null;
+}
+
+function buildMCPInstructionsBlock(
+	toolManager: NonNullable<UseChatHandlerProps['toolManager']>,
+): BuiltPromptBlock | null {
+	const instructions = toolManager.getMCPInstructions();
+	if (instructions.length === 0) return null;
+	return {
+		cacheScope: 'stable',
+		text: [
+			'<mcp_instructions>',
+			...instructions.flatMap(item => [
+				`  <server name="${item.name}">`,
+				...item.instructions.split('\n').map(line => `    ${line}`),
+				'  </server>',
+			]),
+			'</mcp_instructions>',
+		].join('\n'),
+	};
+}
+
+function promptFromBlocks(blocks: BuiltPromptBlock[]): string {
+	return blocks
+		.map(b => b.text)
+		.filter(Boolean)
+		.join('\n\n');
+}
+
 export function getBaseSystemPrompt(
 	developmentMode: UseChatHandlerProps['developmentMode'],
-	cachedBasePrompt: string | null,
+	cachedBasePrompt: CachedPromptInput,
 	toolManager: NonNullable<UseChatHandlerProps['toolManager']>,
 	tune: UseChatHandlerProps['tune'],
 	toolsDisabled: boolean,
 	model?: string,
 ): string {
+	return getBaseSystemPromptState(
+		developmentMode,
+		cachedBasePrompt,
+		toolManager,
+		tune,
+		toolsDisabled,
+		model,
+	).prompt;
+}
+
+function getBaseSystemPromptState(
+	developmentMode: UseChatHandlerProps['developmentMode'],
+	cachedBasePrompt: CachedPromptInput,
+	toolManager: NonNullable<UseChatHandlerProps['toolManager']>,
+	tune: UseChatHandlerProps['tune'],
+	toolsDisabled: boolean,
+	model?: string,
+): CachedPrompt {
 	const systemPromptOverride = getAppConfig().systemPrompt;
-	if (developmentMode === 'headless') {
-		return buildSystemPrompt(
-			developmentMode,
-			tune,
-			toolManager.getAvailableToolNames(
-				tune,
-				developmentMode,
-				undefined,
-				model,
-			),
-			toolsDisabled,
-			systemPromptOverride,
-			model,
-		);
+	const mode = developmentMode ?? 'normal';
+
+	const normalized = normalizeCachedPrompt(cachedBasePrompt);
+	if (developmentMode !== 'headless' && normalized) {
+		return normalized;
 	}
 
-	return (
-		cachedBasePrompt ??
-		buildSystemPrompt(
-			developmentMode ?? 'normal',
-			tune,
-			toolManager.getAvailableToolNames(
-				tune,
-				developmentMode ?? 'normal',
-				undefined,
-				model,
-			),
-			toolsDisabled,
-			systemPromptOverride,
-			model,
-		)
+	const availableNames = toolManager.getAvailableToolNames(
+		tune,
+		mode,
+		undefined,
+		model,
 	);
+	const blocks = buildSystemPromptBlocks(
+		mode,
+		tune,
+		availableNames,
+		toolsDisabled,
+		systemPromptOverride,
+		model,
+	);
+	const skillsBlock = buildSkillsPromptBlock();
+	if (skillsBlock) blocks.push(skillsBlock);
+	const mcpBlock = buildMCPInstructionsBlock(toolManager);
+	if (mcpBlock) blocks.push(mcpBlock);
+	return {
+		blocks,
+		prompt: promptFromBlocks(blocks),
+	};
 }
 
 /**
@@ -125,7 +194,7 @@ export function useChatHandler({
 	// When native tools are disabled, XML tool definitions are included in the prompt
 	// so token counting reflects the full system message the model actually sees.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: subagentsReady isn't read in the callback, but flipping it must invalidate the memo so buildSystemPrompt re-reads the module-level subagent cache populated by setAvailableSubagents.
-	const cachedBasePrompt = React.useMemo(() => {
+	const cachedBasePrompt = React.useMemo((): CachedPrompt | null => {
 		if (!toolManager) return null;
 		const availableNames = toolManager.getAvailableToolNames(
 			tune,
@@ -133,7 +202,7 @@ export function useChatHandler({
 			undefined,
 			currentModel,
 		);
-		const basePrompt = buildSystemPrompt(
+		const baseBlocks = buildSystemPromptBlocks(
 			developmentMode,
 			tune,
 			availableNames,
@@ -141,6 +210,11 @@ export function useChatHandler({
 			getAppConfig().systemPrompt,
 			currentModel,
 		);
+		const skillsBlock = buildSkillsPromptBlock();
+		if (skillsBlock) baseBlocks.push(skillsBlock);
+		const mcpBlock = buildMCPInstructionsBlock(toolManager);
+		if (mcpBlock) baseBlocks.push(mcpBlock);
+		const basePrompt = promptFromBlocks(baseBlocks);
 
 		const tools = toolsDisabled
 			? toolManager.getFilteredTools(availableNames)
@@ -152,10 +226,20 @@ export function useChatHandler({
 			tools,
 		);
 
+		// XML/JSON fallback tool definitions historically append to the very end
+		// of the system prompt. Preserve that exact order. Because that places
+		// stable tool schemas after volatile blocks (cwd/date/AGENTS.md), we send
+		// fallback prompts as one volatile block rather than placing an unsafe
+		// cache breakpoint across per-turn data.
+		const blocks =
+			prompt === basePrompt
+				? baseBlocks
+				: [{text: prompt, cacheScope: 'volatile' as const}];
+
 		// Update the cached prompt so /usage and context % see the full prompt
 		setLastBuiltPrompt(prompt);
 
-		return prompt;
+		return {prompt, blocks};
 	}, [
 		developmentMode,
 		tune,
@@ -345,7 +429,7 @@ export function useChatHandler({
 		setAbortController(controller);
 
 		try {
-			let systemPrompt = getBaseSystemPrompt(
+			const systemState = getBaseSystemPromptState(
 				developmentMode,
 				cachedBasePrompt,
 				toolManager,
@@ -353,19 +437,34 @@ export function useChatHandler({
 				toolsDisabled,
 				currentModel,
 			);
+			let systemPrompt = systemState.prompt;
+			const systemBlocks = [...systemState.blocks];
 
-			// Enhance with relevant commands (progressive disclosure)
+			// Enhance with relevant commands (progressive disclosure). These
+			// command/skill snippets are request-specific, so if they append content
+			// to the prompt they become a trailing volatile block and never carry a
+			// cache breakpoint.
 			if (commandIntegration) {
-				systemPrompt = commandIntegration.enhanceSystemPrompt(
+				const enhanced = commandIntegration.enhanceSystemPrompt(
 					systemPrompt,
 					message,
 				);
+				if (enhanced !== systemPrompt) {
+					const appended = enhanced
+						.slice(systemPrompt.length)
+						.replace(/^\n+/, '');
+					if (appended.length > 0) {
+						systemBlocks.push({text: appended, cacheScope: 'volatile'});
+					}
+					systemPrompt = enhanced;
+				}
 			}
 
 			// Create stream request
 			const systemMessage: Message = {
 				role: 'system',
 				content: systemPrompt,
+				systemBlocks,
 			};
 
 			// Use the conversation loop

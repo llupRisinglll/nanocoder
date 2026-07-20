@@ -1,4 +1,5 @@
 import type {LanguageModel} from 'ai';
+import {randomUUID} from 'crypto';
 import {Agent} from 'undici';
 import {
 	TIMEOUT_SOCKET_DEFAULT_MS,
@@ -33,6 +34,7 @@ export class AISDKClient implements LLMClient {
 	private undiciAgent: Agent;
 	private cachedContextSize: number;
 	private maxRetries: number;
+	private sessionAffinityId: string;
 
 	constructor(providerConfig: AIProviderConfig) {
 		const logger = getLogger();
@@ -41,6 +43,7 @@ export class AISDKClient implements LLMClient {
 		this.availableModels = providerConfig.models;
 		this.currentModel = providerConfig.models[0] || '';
 		this.cachedContextSize = 0;
+		this.sessionAffinityId = randomUUID();
 		// Default to 2 retries (same as AI SDK default), or use configured value
 		this.maxRetries = providerConfig.maxRetries ?? 2;
 
@@ -157,39 +160,78 @@ export class AISDKClient implements LLMClient {
 		signal?: AbortSignal,
 		modeOverrides?: ModeOverrides,
 	): Promise<LLMChatResponse> {
-		// Get the language model instance from the tagged provider.
-		// GitHub Copilot requires routing: GPT-5+ → Responses API, others → Chat Completions.
-		// ChatGPT/Codex always uses the Responses API.
-		const model: LanguageModel = (() => {
+		const getModel = (modelName: string): LanguageModel => {
+			// GitHub Copilot requires routing: GPT-5+ → Responses API, others → Chat Completions.
+			// ChatGPT/Codex always uses the Responses API.
 			switch (this.provider.kind) {
 				case 'chatgpt-codex':
-					return this.provider.provider.responses(this.currentModel);
+					return this.provider.provider.responses(modelName);
 				case 'github-copilot':
-					return this.currentModel.includes('gpt-5')
-						? this.provider.provider.responses(this.currentModel)
-						: this.provider.provider.chat(this.currentModel);
+					return modelName.includes('gpt-5')
+						? this.provider.provider.responses(modelName)
+						: this.provider.provider.chat(modelName);
 				case 'openai-compatible':
 				case 'anthropic':
 				case 'google':
-					return this.provider.provider(this.currentModel) as LanguageModel;
+					return this.provider.provider(modelName) as LanguageModel;
 			}
-		})();
+		};
 
-		// Delegate to chat handler
-		return await handleChat({
-			model,
-			currentModel: this.currentModel,
-			providerConfig: this.providerConfig,
-			messages,
-			tools,
-			callbacks,
-			signal,
-			maxRetries: this.maxRetries,
-			modeOverrides,
-			privacySessionMapRef: modeOverrides?.privacySessionMapRef,
-			privacyEnabled: modeOverrides?.privacyEnabled,
-			onPrivacyEvent: callbacks.onPrivacyEvent,
-		});
+		const sessionHeaders = {
+			...this.providerConfig.config.headers,
+			'x-session-affinity': this.sessionAffinityId,
+			'X-Session-Id': this.sessionAffinityId,
+		};
+		const providerConfigForRequest: AIProviderConfig = {
+			...this.providerConfig,
+			config: {
+				...this.providerConfig.config,
+				headers: sessionHeaders,
+			},
+		};
+
+		const runChat = async (modelName: string) =>
+			await handleChat({
+				model: getModel(modelName),
+				currentModel: modelName,
+				providerConfig: providerConfigForRequest,
+				providerKind: this.provider.kind,
+				sessionAffinityId: this.sessionAffinityId,
+				messages,
+				tools,
+				callbacks,
+				signal,
+				maxRetries: this.maxRetries,
+				modeOverrides,
+				privacySessionMapRef: modeOverrides?.privacySessionMapRef,
+				privacyEnabled: modeOverrides?.privacyEnabled,
+				onPrivacyEvent: callbacks.onPrivacyEvent,
+			});
+
+		try {
+			return await runChat(this.currentModel);
+		} catch (error) {
+			const fallbackModel = this.providerConfig.fallbackModel;
+			const canFallback =
+				fallbackModel &&
+				fallbackModel !== this.currentModel &&
+				this.availableModels.includes(fallbackModel) &&
+				!(
+					error instanceof Error && error.message === 'Operation was cancelled'
+				);
+			if (!canFallback) throw error;
+
+			getLogger().warn(
+				'Primary model failed; retrying once with fallback model',
+				{
+					provider: this.providerConfig.name,
+					primaryModel: this.currentModel,
+					fallbackModel,
+					error: error instanceof Error ? error.message : String(error),
+				},
+			);
+			return await runChat(fallbackModel);
+		}
 	}
 
 	clearContext(): Promise<void> {
@@ -208,5 +250,15 @@ export class AISDKClient implements LLMClient {
 		return (
 			this.providerConfig.socketTimeout ?? this.providerConfig.requestTimeout
 		);
+	}
+
+	/**
+	 * The kind of the active provider (`'anthropic'`, `'openai-compatible'`,
+	 * `'github-copilot'`, `'chatgpt-codex'`, `'google'`). Used by the chat
+	 * handler to decide whether prompt-caching markers apply and to shape
+	 * provider-specific options without re-deriving the kind from config.
+	 */
+	getProviderKind(): TaggedProvider['kind'] {
+		return this.provider.kind;
 	}
 }

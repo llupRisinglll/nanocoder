@@ -1,4 +1,4 @@
-import type {LanguageModel} from 'ai';
+import type {LanguageModel, SystemModelMessage} from 'ai';
 import {
 	InvalidToolInputError,
 	NoSuchToolError,
@@ -7,12 +7,14 @@ import {
 	ToolCallRepairError,
 } from 'ai';
 import {MAX_TOOL_STEPS} from '@/constants';
+import {formatForProvider, remapToolKeys} from '@/tools/tool-aliases';
 import type {
 	AIProviderConfig,
 	AISDKCoreTool,
 	LLMChatResponse,
 	Message,
 	ModeOverrides,
+	ProviderKind,
 	StreamCallbacks,
 	ToolCall,
 } from '@/types/index';
@@ -33,18 +35,56 @@ import {convertAISDKToolCalls} from '../converters/tool-converter.js';
 import {extractRootError} from '../error-handling/error-extractor.js';
 import {parseAPIError} from '../error-handling/error-parser.js';
 import {isToolSupportError} from '../error-handling/tool-error-detector.js';
+import {
+	applyCachePolicy,
+	providerSupportsCaching,
+	type SystemPromptBlock,
+} from '../prompt-caching.js';
 import {buildProviderOptions} from './provider-options.js';
+import {
+	applyHeaderTransforms,
+	applyParamsTransforms,
+	applySystemTransforms,
+} from './request-transforms.js';
 import {
 	createOnStepFinishHandler,
 	createPrepareStepHandler,
 } from './streaming-handler.js';
+import {filterActiveToolsForTurn} from './tool-filter.js';
 
 type SDKProviderOptions = Parameters<typeof streamText>[0]['providerOptions'];
+
+function withLooseToolSchemas(
+	tools: Record<string, AISDKCoreTool>,
+	providerKind?: ProviderKind,
+): Record<string, AISDKCoreTool> {
+	if (providerKind !== 'chatgpt-codex' && providerKind !== 'github-copilot') {
+		return tools;
+	}
+	return Object.fromEntries(
+		Object.entries(tools).map(([name, toolDef]) => [
+			name,
+			{...toolDef, strict: false},
+		]),
+	) as Record<string, AISDKCoreTool>;
+}
 
 export interface ChatHandlerParams {
 	model: LanguageModel;
 	currentModel: string;
 	providerConfig: AIProviderConfig;
+	/**
+	 * Active provider kind, used to decide whether prompt-caching markers
+	 * apply and how to shape them. When omitted, caching is disabled (legacy
+	 * callers that haven't been wired through `AISDKClient.getProviderKind()`).
+	 */
+	providerKind?: ProviderKind;
+	/**
+	 * Stable per-session id forwarded to OpenAI/Codex Responses as
+	 * `promptCacheKey` so the provider can route to a cache-warm region. Also
+	 * sent as `x-session-affinity` / `X-Session-Id` headers (see AISDKClient).
+	 */
+	sessionAffinityId?: string;
 	messages: Message[];
 	tools: Record<string, AISDKCoreTool>;
 	callbacks: StreamCallbacks;
@@ -67,6 +107,8 @@ export async function handleChat(
 		model,
 		currentModel,
 		providerConfig,
+		providerKind,
+		sessionAffinityId,
 		messages,
 		tools,
 		callbacks,
@@ -135,10 +177,12 @@ export async function handleChat(
 		try {
 			// Tools arrive with approval policy already resolved by ToolManager.
 			// No approval mutation needed here — chat handler is a pure SDK caller.
+			const filteredTools = filterActiveToolsForTurn(tools, messages);
+			const requestTools = withLooseToolSchemas(filteredTools, providerKind);
 			const aiTools = shouldDisableTools
 				? undefined
-				: Object.keys(tools).length > 0
-					? tools
+				: Object.keys(requestTools).length > 0
+					? requestTools
 					: undefined;
 
 			// XML tool definitions are already included in the system prompt
@@ -147,35 +191,58 @@ export async function handleChat(
 			// AI SDK v6 wants the system prompt via the top-level `system` option
 			// rather than as a system-role entry in `messages` (it warns otherwise
 			// to discourage prompt-injection-prone patterns). Extract it here.
-			const systemContent = messages
-				.filter(m => m.role === 'system')
-				.map(m => m.content)
-				.join('\n\n');
+			//
+			// The system message may carry `systemBlocks` (structured stable/volatile
+			// blocks produced by `buildSystemPromptBlocks`). When present, we preserve
+			// the block structure so the prompt-caching layer can stamp a cache
+			// breakpoint on the last STABLE block only — keeping per-turn changes
+			// (cwd, date, AGENTS.md) from busting the cached stable prefix. When
+			// absent, we fall back to the legacy joined-string behavior.
+			const systemMessages = messages.filter(m => m.role === 'system');
 			const nonSystemMessages = messages.filter(m => m.role !== 'system');
+
+			let systemBlocks: SystemPromptBlock[] | undefined;
+			let systemContent: string;
+			const firstBlockCarrier = systemMessages.find(m => m.systemBlocks);
+			if (
+				firstBlockCarrier?.systemBlocks &&
+				firstBlockCarrier.systemBlocks.length > 0
+			) {
+				systemBlocks = firstBlockCarrier.systemBlocks.map(b => ({...b}));
+				systemContent = systemBlocks.map(b => b.text).join('\n\n');
+			} else {
+				systemContent = systemMessages.map(m => m.content).join('\n\n');
+			}
 
 			// Scrub prompts if privacy scrubbing is enabled
 			let finalSystemContent = systemContent;
+			let finalSystemBlocks = systemBlocks;
 			let finalNonSystemMessages = nonSystemMessages;
 			if (privacyEnabled && privacySessionMapRef) {
 				const {scrub} = await import('@nanocollective/prompt-scrub');
 
 				const prevCount = Object.keys(privacySessionMapRef.current).length;
 
-				finalSystemContent = scrub({
-					content: systemContent,
-					sessionMap: privacySessionMapRef.current,
-					options: {disabledDetectors: ['PathDetector', 'UrlDetector']},
-				}).scrubbedContent as string;
+				const scrubText = (text: string): string =>
+					scrub({
+						content: text,
+						sessionMap: privacySessionMapRef.current,
+						options: {disabledDetectors: ['PathDetector', 'UrlDetector']},
+					}).scrubbedContent as string;
+
+				finalSystemContent = scrubText(systemContent);
+				if (finalSystemBlocks) {
+					finalSystemBlocks = finalSystemBlocks.map(b => ({
+						...b,
+						text: scrubText(b.text),
+					}));
+				}
 
 				finalNonSystemMessages = nonSystemMessages.map(m => {
 					if (m.role === 'tool') return m;
 					return {
 						...m,
-						content: scrub({
-							content: m.content,
-							sessionMap: privacySessionMapRef.current,
-							options: {disabledDetectors: ['PathDetector', 'UrlDetector']},
-						}).scrubbedContent as string,
+						content: scrubText(m.content),
 					};
 				});
 
@@ -186,14 +253,63 @@ export async function handleChat(
 				}
 			}
 
-			// Convert messages to AI SDK v5 ModelMessage format
-			const modelMessages = convertToModelMessages(finalNonSystemMessages);
+			// Convert messages to AI SDK ModelMessage format
+			let modelMessages = convertToModelMessages(finalNonSystemMessages);
+
+			// Run the cache-policy pass. For Anthropic-format providers this
+			// stamps breakpoints across tools → system → latest user message in
+			// invalidation order, sharing a single 4-breakpoint budget. For
+			// other providers (OpenAI-format etc.) it's a no-op — their caching
+			// is driven by `promptCacheKey` in buildProviderOptions instead.
+			// (opencode `cache-policy.ts` parity.)
+			const cacheResult = applyCachePolicy(
+				finalSystemBlocks,
+				modelMessages,
+				aiTools ?? undefined,
+				providerKind ?? 'openai-compatible',
+			);
+			modelMessages = cacheResult.messages;
+			// Remap tool keys from canonical names to the model-facing names for
+			// this provider's format (Bash/Read/Edit for Anthropic, apply_patch
+			// for Codex, execute_bash/read_file for local). Incoming tool calls
+			// are resolved back to canonical in convertAISDKToolCall.
+			const format = formatForProvider(providerKind);
+			const stampedTools = cacheResult.tools
+				? (remapToolKeys(cacheResult.tools, format) as Record<
+						string,
+						AISDKCoreTool
+					>)
+				: cacheResult.tools;
+			if (cacheResult.dropped > 0) {
+				logger.warn(
+					`Prompt cache: dropped ${cacheResult.dropped} breakpoint(s); Anthropic allows at most 4 per request.`,
+					{provider: providerConfig.name, model: currentModel},
+				);
+			}
+
+			// systemParam prefers the structured cached form when available;
+			// otherwise falls back to the joined string (the SDK accepts both).
+			let systemParam: string | SystemModelMessage[] | undefined =
+				cacheResult.system ?? finalSystemContent ?? undefined;
+
+			const transformContext = {
+				providerConfig,
+				providerKind,
+				model: currentModel,
+				messages: modelMessages,
+				tools: stampedTools ?? aiTools,
+			};
+			systemParam = applySystemTransforms(systemParam, transformContext);
 
 			logger.debug('AI SDK request prepared', {
 				messageCount: modelMessages.length,
 				hasSystem: systemContent.length > 0,
 				hasTools: !!aiTools,
 				toolCount: aiTools ? Object.keys(aiTools).length : 0,
+				promptCaching:
+					providerKind && providerSupportsCaching(providerKind)
+						? `enabled (${providerKind}, ${cacheResult.dropped} dropped)`
+						: 'disabled',
 			});
 
 			// These tools have `execute` stripped, so the SDK never auto-runs
@@ -205,20 +321,51 @@ export async function handleChat(
 			// OpenRouter provider routing / reasoning / transforms / fallback
 			// models). buildProviderOptions returns undefined when nothing
 			// applies, so the SDK call site doesn't see an empty object.
-			const providerOptions = buildProviderOptions(
+			let providerOptions = buildProviderOptions(
 				providerConfig,
 				systemContent,
 				modeOverrides?.modelParameters,
+				sessionAffinityId,
+			);
+			providerOptions = applyParamsTransforms(
+				providerOptions,
+				transformContext,
+			);
+			const requestHeaders = applyHeaderTransforms(
+				providerConfig.config.headers,
+				transformContext,
 			);
 
 			const result = streamText({
 				model,
-				...(finalSystemContent ? {system: finalSystemContent} : {}),
+				...(systemParam ? {system: systemParam} : {}),
 				messages: modelMessages,
-				tools: aiTools,
+				tools: stampedTools ?? aiTools,
 				abortSignal: signal,
 				maxRetries,
 				stopWhen: stepCountIs(MAX_TOOL_STEPS),
+				// Repair common weak-model tool-call mistakes before failing the turn.
+				// The safe repair is case normalization only: if `Read_File` maps to an
+				// existing `read_file`, retry with the real name. Anything more creative
+				// risks executing a different tool than the model intended, so we return
+				// null and let the existing NoSuchTool/InvalidToolInput handlers surface
+				// the validation error for self-correction.
+				experimental_repairToolCall: async failed => {
+					const lower = failed.toolCall.toolName.toLowerCase();
+					if (lower !== failed.toolCall.toolName && tools[lower]) {
+						logger.debug('Repairing tool call name case', {
+							from: failed.toolCall.toolName,
+							to: lower,
+							model: currentModel,
+							provider: providerConfig.name,
+						});
+						return {
+							...failed.toolCall,
+							toolName: lower,
+						};
+					}
+					return null;
+				},
 				onStepFinish: createOnStepFinishHandler(callbacks),
 				prepareStep: createPrepareStepHandler(),
 				onError: ({error}) => {
@@ -245,7 +392,7 @@ export async function handleChat(
 						provider: providerConfig.name,
 					});
 				},
-				headers: providerConfig.config.headers,
+				headers: requestHeaders,
 				// Cast to the SDK's narrower JSON-only type. The values built by
 				// buildProviderOptions are all JSON-serialisable, but TypeScript
 				// can't infer that through our looser internal shape.
@@ -478,6 +625,12 @@ export async function handleChat(
 					inputTokens: usage.inputTokens,
 					outputTokens: usage.outputTokens,
 					totalTokens: usage.totalTokens,
+					// Surface cache metrics so callers (logs, /usage) can observe
+					// cache hit ratio — the primary success metric for prompt
+					// caching. The AI SDK exposes these under inputTokenDetails.
+					cacheReadInputTokens:
+						usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens,
+					cacheWriteInputTokens: usage.inputTokenDetails?.cacheWriteTokens,
 				},
 			};
 		} catch (error) {

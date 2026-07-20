@@ -212,6 +212,7 @@ export function loadProviderConfigs(): AIProviderConfig[] {
 		requestTimeout: provider.requestTimeout,
 		socketTimeout: provider.socketTimeout,
 		connectionPool: provider.connectionPool,
+		fallbackModel: provider.fallbackModel,
 		// Tool configuration
 		disableTools: provider.disableTools,
 		disableToolModels: provider.disableToolModels,

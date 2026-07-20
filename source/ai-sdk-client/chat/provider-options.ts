@@ -37,11 +37,14 @@ export function buildProviderOptions(
 	providerConfig: AIProviderConfig,
 	systemContent: string,
 	modelParameters: ModelParameters | undefined,
+	sessionAffinityId?: string,
 ): ProviderOptions | undefined {
 	if (providerConfig.sdkProvider === 'chatgpt-codex') {
 		return {
 			openai: {
 				...(systemContent ? {instructions: systemContent} : {}),
+				...(sessionAffinityId ? {promptCacheKey: sessionAffinityId} : {}),
+				promptCacheRetention: '24h',
 				store: false,
 				reasoningEffort: modelParameters?.reasoningEffort ?? 'medium',
 				reasoningSummary: modelParameters?.reasoningSummary ?? 'auto',
