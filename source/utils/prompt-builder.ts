@@ -9,6 +9,22 @@ import type {DevelopmentMode} from '@/types/core';
 import {getLogger} from '@/utils/logging';
 import {getSubagentDescriptions} from '@/utils/prompt-processor';
 
+/**
+ * A built system-prompt block tagged with its cache scope.
+ *
+ * `stable` blocks are identical for the whole session (identity, principles,
+ * tool rules, per-tool guidance). `volatile` blocks change per turn or per
+ * cwd (system info, AGENTS.md, user override content).
+ *
+ * The chat handler uses this split to place the Anthropic cache breakpoint on
+ * the last stable block only, so per-turn changes (cwd, date) don't bust the
+ * cached stable prefix.
+ */
+export interface BuiltPromptBlock {
+	text: string;
+	cacheScope: 'stable' | 'volatile';
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const sectionsDir = join(__dirname, '../../source/app/prompts/sections');
@@ -107,19 +123,6 @@ Current Working Directory: ${process.cwd()}
 Current Date: ${dateStr}`;
 }
 
-function appendAgentsMd(prompt: string): string {
-	const agentsPath = join(process.cwd(), 'AGENTS.md');
-	if (existsSync(agentsPath)) {
-		try {
-			const agentsContent = readFileSync(agentsPath, 'utf-8');
-			return `${prompt}\n\nAdditional Context...\n\n${agentsContent}`;
-		} catch {
-			// Silently skip if unreadable
-		}
-	}
-	return prompt;
-}
-
 // Search/discovery tools that justify a "prefer native over bash" instruction
 // read_file alone doesn't count — the model needs search tools for the advice to be meaningful
 const NATIVE_SEARCH_TOOLS = new Set([
@@ -140,6 +143,34 @@ function hasAnyGitTool(toolSet: Set<string>): boolean {
 		if (name.startsWith('git_')) return true;
 	}
 	return false;
+}
+
+function getIdentitySectionName(model?: string): string {
+	const id = model?.toLowerCase() ?? '';
+	if (id.includes('claude')) return 'identity-anthropic';
+	if (id.includes('gemini')) return 'identity-gemini';
+	if (
+		id.includes('gpt') ||
+		id.includes('o1') ||
+		id.includes('o3') ||
+		id.includes('o4') ||
+		id.includes('codex')
+	) {
+		return 'identity-gpt';
+	}
+	if (
+		id.includes('ollama') ||
+		id.includes('llama') ||
+		id.includes('qwen') ||
+		id.includes('deepseek') ||
+		id.includes('glm') ||
+		id.includes('kimi') ||
+		id.includes('mistral') ||
+		id.includes('mixtral')
+	) {
+		return 'identity-local';
+	}
+	return 'identity';
 }
 
 /**
@@ -194,14 +225,53 @@ export function buildSystemPrompt(
 	systemPromptOverride?: SystemPromptConfig,
 	model?: string,
 ): string {
+	const blocks = buildSystemPromptBlocks(
+		developmentMode,
+		tuneConfig,
+		availableToolNames,
+		toolsDisabled,
+		systemPromptOverride,
+		model,
+	);
+	const prompt = blocks
+		.map(b => b.text)
+		.filter(Boolean)
+		.join('\n\n');
+	lastBuiltPrompt = prompt;
+	return prompt;
+}
+
+/**
+ * Build the system prompt as a list of cache-scoped blocks. Identical content
+ * to {@link buildSystemPrompt}; the only difference is the return shape.
+ *
+ * The block split enables prompt caching: every block up to and excluding the
+ * first `volatile` block is stable for the whole session (identity, principles,
+ * tool guidance) and can carry an Anthropic `cache_control` breakpoint; the
+ * `volatile` blocks (`generateSystemInfo()` output with cwd/date, AGENTS.md
+ * content, and any user override) change per turn and must NOT be cached.
+ *
+ * Callers that just need the joined string (token counting, /usage display)
+ * should use {@link buildSystemPrompt} or {@link getLastBuiltPrompt}. Only the
+ * chat handler needs this structured form, to place the cache breakpoint.
+ */
+export function buildSystemPromptBlocks(
+	developmentMode: DevelopmentMode,
+	tuneConfig: TuneConfig | undefined,
+	availableToolNames: string[],
+	toolsDisabled = false,
+	systemPromptOverride?: SystemPromptConfig,
+	model?: string,
+): BuiltPromptBlock[] {
 	const overrideContent = systemPromptOverride
 		? resolveSystemPromptOverride(systemPromptOverride)
 		: null;
 	const overrideMode = systemPromptOverride?.mode ?? 'replace';
 
+	// Replace-mode override replaces the entire prompt — emit it as a single
+	// volatile block (it's user-controlled text we can't assume is stable).
 	if (overrideContent !== null && overrideMode === 'replace') {
-		lastBuiltPrompt = overrideContent;
-		return overrideContent;
+		return [{text: overrideContent, cacheScope: 'volatile'}];
 	}
 
 	const tune = tuneConfig ?? TUNE_DEFAULTS;
@@ -209,18 +279,19 @@ export function buildSystemPrompt(
 		tune.enabled && isSingleToolProfile(tune.toolProfile, model);
 	const nano = tune.enabled && isNanoProfile(tune.toolProfile, model);
 	const toolSet = new Set(availableToolNames);
-	const sections: string[] = [];
+	const stableSections: string[] = [];
 
-	// Always included
-	sections.push(loadSection('identity'));
+	// Always included. The base identity is lightly tuned by model family
+	// (Claude/GPT/Gemini/local) while preserving the same safety boundary.
+	stableSections.push(loadSection(getIdentitySectionName(model)));
 
 	// Core principles — dropped under nano (identity + tool rules cover the essentials)
 	if (!nano) {
-		sections.push(loadSection('core-principles'));
+		stableSections.push(loadSection('core-principles'));
 	}
 
 	// Mode-specific task approach (nano variant when active)
-	sections.push(
+	stableSections.push(
 		loadSection(
 			nano
 				? `task-approach-nano-${developmentMode}`
@@ -234,7 +305,7 @@ export function buildSystemPrompt(
 		toolRules +=
 			'\n- **IMPORTANT**: Call exactly ONE tool per response. Wait for the result before calling the next tool.';
 	}
-	sections.push(toolRules);
+	stableSections.push(toolRules);
 
 	// File operations — only if any file mutation tools are available
 	if (
@@ -242,19 +313,21 @@ export function buildSystemPrompt(
 		toolSet.has('write_file') ||
 		toolSet.has('file_op')
 	) {
-		sections.push(loadSection(nano ? 'file-editing-nano' : 'file-editing'));
+		stableSections.push(
+			loadSection(nano ? 'file-editing-nano' : 'file-editing'),
+		);
 	}
 
 	// Native tool preference — only if bash AND search/discovery tools are both available.
 	// Skipped under nano: nano profile has no native search/discovery tools by design.
 	if (!nano && toolSet.has('execute_bash') && hasNativeSearchTools(toolSet)) {
-		sections.push(loadSection('native-tool-preference'));
+		stableSections.push(loadSection('native-tool-preference'));
 	}
 
 	// Git tools — only if any git tools are available
 	if (hasAnyGitTool(toolSet)) {
 		// Plan mode only has read-only git tools — use plan-specific section
-		sections.push(
+		stableSections.push(
 			loadSection(
 				developmentMode === 'plan' ? 'git-tools-readonly' : 'git-tools',
 			),
@@ -263,18 +336,18 @@ export function buildSystemPrompt(
 
 	// Task management — only if write_tasks is available AND not in plan mode
 	if (toolSet.has('write_tasks') && developmentMode !== 'plan') {
-		sections.push(loadSection('task-management'));
+		stableSections.push(loadSection('task-management'));
 	}
 
 	// Web tools — only if web_search or fetch_url are available
 	if (toolSet.has('web_search') || toolSet.has('fetch_url')) {
-		sections.push(loadSection('web-tools'));
+		stableSections.push(loadSection('web-tools'));
 	}
 
 	// Diagnostics — only if lsp_get_diagnostics is available
 	if (toolSet.has('lsp_get_diagnostics')) {
 		// Plan mode: check for existing issues, not "fix what you introduce"
-		sections.push(
+		stableSections.push(
 			loadSection(
 				developmentMode === 'plan' ? 'diagnostics-readonly' : 'diagnostics',
 			),
@@ -284,7 +357,7 @@ export function buildSystemPrompt(
 	// Asking questions — only if ask_user is available
 	if (toolSet.has('ask_user')) {
 		// Plan mode gets stronger upfront-questioning guidance
-		sections.push(
+		stableSections.push(
 			loadSection(
 				developmentMode === 'plan'
 					? 'asking-questions-plan'
@@ -298,9 +371,9 @@ export function buildSystemPrompt(
 	// Under nano, drop coding-practices and use the shortened constraints.
 	if (developmentMode !== 'plan') {
 		if (!nano) {
-			sections.push(loadSection('coding-practices'));
+			stableSections.push(loadSection('coding-practices'));
 		}
-		sections.push(loadSection(nano ? 'constraints-nano' : 'constraints'));
+		stableSections.push(loadSection(nano ? 'constraints-nano' : 'constraints'));
 	}
 
 	// Subagents — only if the agent tool is available
@@ -311,27 +384,53 @@ export function buildSystemPrompt(
 ### Available subagents:
 
 ${getSubagentDescriptions()}`;
-		sections.push(subagentInfo);
+		stableSections.push(subagentInfo);
 	}
 
-	// System info (dynamic) — slim variant under nano
-	sections.push(generateSystemInfo(nano));
+	// All sections above are stable (they depend only on dev mode, tune, and
+	// the tool set — none of which change mid-session). Join them into one
+	// stable block so the cache breakpoint lands on a single, contiguous
+	// prefix.
+	const blocks: BuiltPromptBlock[] = [];
+	const stableText = stableSections.filter(Boolean).join('\n\n');
+	if (stableText.length > 0) {
+		blocks.push({text: stableText, cacheScope: 'stable'});
+	}
 
-	// Compose and (optionally) append AGENTS.md.
-	// Nano omits AGENTS.md by default; users can override via tune.includeAgentsMd.
-	let prompt = sections.filter(Boolean).join('\n\n');
+	// Volatile: system info (cwd, date change per turn / per directory).
+	blocks.push({text: generateSystemInfo(nano), cacheScope: 'volatile'});
+
+	// Volatile: AGENTS.md (file can be edited mid-session). Nano omits it by
+	// default; users can override via tune.includeAgentsMd.
 	const includeAgentsMd = tune.includeAgentsMd ?? (nano ? false : true);
 	if (includeAgentsMd) {
-		prompt = appendAgentsMd(prompt);
+		const agentsBlock = readAgentsMdBlock();
+		if (agentsBlock.length > 0) {
+			blocks.push({text: agentsBlock, cacheScope: 'volatile'});
+		}
 	}
 
-	// Append-mode user override (replace mode is handled at the top of the function).
+	// Volatile: append-mode user override (replace mode handled at the top).
 	if (overrideContent !== null && overrideMode === 'append') {
-		prompt = `${prompt}\n\n${overrideContent}`;
+		blocks.push({text: overrideContent, cacheScope: 'volatile'});
 	}
 
-	// Cache for token-counting callers that don't have access to the inputs
-	lastBuiltPrompt = prompt;
+	return blocks.filter(b => b.text.length > 0);
+}
 
-	return prompt;
+/**
+ * Read AGENTS.md (if present in cwd) and return it wrapped in the same
+ * "Additional Context..." framing that the legacy prompt builder used, so the
+ * model-visible content is unchanged. Returns '' when the file is absent or
+ * unreadable.
+ */
+function readAgentsMdBlock(): string {
+	const agentsPath = join(process.cwd(), 'AGENTS.md');
+	if (!existsSync(agentsPath)) return '';
+	try {
+		const agentsContent = readFileSync(agentsPath, 'utf-8');
+		return `Additional Context...\n\n${agentsContent}`;
+	} catch {
+		return '';
+	}
 }
