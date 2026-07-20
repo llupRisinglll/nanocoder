@@ -35,6 +35,10 @@ New work lands on `rc/*` branches here first, then gets proposed back to the ori
 | Atomic paste placeholders — cursor can't land inside `[Paste #N]`, backspace removes it whole, chat history shows the real pasted text | Incubating on `rc/paste-placeholders` |
 | Command menu descriptions — completion list shows each command's description, grey unselected rows | Incubating on `rc/command-menu-descriptions` |
 | Tabbed settings dialog — categorized tabs, fuzzy search field, title-shape-aware tab bar | PR open upstream |
+| Anthropic prompt caching — stable/volatile system-prompt split, breakpoint budget on tools + system + messages (≈90% input-token cost cut on cached turns) | Incubating on `rc/provider-network-prompt-arch` |
+| Per-provider tool naming — Claude Code names for Anthropic, Codex names for OpenAI, snake_case for local models; aliases accepted bidirectionally | Incubating on `rc/provider-network-prompt-arch` |
+| Per-model identity prompts, MCP server instructions in system prompt, skills-in-prompt listing + `skill` tool | Incubating on `rc/provider-network-prompt-arch` |
+| Model fallback retry, session-affinity headers, tool-call self-repair, per-turn tool filtering, image detail/file-part/size-guard hardening | Incubating on `rc/provider-network-prompt-arch` |
 
 #### Previews
 
