@@ -27,20 +27,42 @@ export const ALWAYS_EXPANDED_TOOLS = new Set(['write_tasks']);
  */
 export const LIVE_TASK_TOOLS = new Set(['write_tasks']);
 
-/**
- * Compact tool result display - shows "⚒ toolName  description" in tool color.
- */
+/** Compact tool result display - shows "⚒ toolName ×N". */
 function CompactToolResult({
 	toolName,
-	description,
+	count = 1,
 }: {
 	toolName: string;
-	description: string;
+	count?: number;
 }) {
 	const {colors} = useTheme();
 	return (
-		<Text color={colors.tool}>
-			{'\u2692'} {description}
+		<Text>
+			<Text color={colors.tool}>{'\u2692'} </Text>
+			<Text color={colors.primary}>{toolName}</Text>
+			{count > 1 && <Text color={colors.text}> ×{count}</Text>}
+		</Text>
+	);
+}
+
+/** Compact grouped tool display - shows "⚒ toolA ×N, toolB ×N". */
+export function CompactToolCountsLine({
+	entries,
+}: {
+	entries: Array<[string, number]>;
+}) {
+	const {colors} = useTheme();
+
+	return (
+		<Text>
+			<Text color={colors.tool}>{'\u2692'} </Text>
+			{entries.map(([toolName, count], index) => (
+				<React.Fragment key={toolName}>
+					{index > 0 && <Text color={colors.secondary}>, </Text>}
+					<Text color={colors.primary}>{toolName}</Text>
+					{count > 1 && <Text color={colors.text}> ×{count}</Text>}
+				</React.Fragment>
+			))}
 		</Text>
 	);
 }
@@ -54,8 +76,10 @@ function CompactToolResult({
 function CompactToolError({toolName}: {toolName: string}) {
 	const {colors} = useTheme();
 	return (
-		<Text color={colors.error}>
-			{'\u2692'} {toolName} failed
+		<Text>
+			<Text color={colors.tool}>{'\u2692'} </Text>
+			<Text color={colors.primary}>{toolName}</Text>
+			<Text color={colors.error}> failed</Text>
 		</Text>
 	);
 }
@@ -143,7 +167,7 @@ function CompactFileResult({
 			<Box>
 				<Text color={colors.tool}>{'\u2692'} </Text>
 				<Text color={colors.primary} bold>
-					{displayName}
+					{toolName}
 				</Text>
 				<Text color={colors.secondary}> </Text>
 				<Text wrap="truncate-end" color={colors.text}>
@@ -152,6 +176,7 @@ function CompactFileResult({
 			</Box>
 			<Box>
 				<Text color={colors.secondary}> {'\u23bf'} </Text>
+				<Text color={colors.secondary}>{displayName}: </Text>
 				<Text color={colors.text}>{rangeDesc}</Text>
 			</Box>
 			{diffBody}
@@ -168,15 +193,14 @@ function flattenToOneLine(value: string): string {
 
 /**
  * Extract the primary detail for omnicode's detailed compact tool lines:
- * "⚒ <verb> <detail>" (e.g. "⚒ Ran git diff --staged", "⚒ Fetched
- * https://…"). Returns null for tools with no meaningful single detail —
- * those keep the count tally. Verbs follow getGroupedCompactDescription's
- * nanocoder wording, not Claude-style parentheses.
+ * "⚒ <tool_name> <detail>" (e.g. "⚒ git_diff git diff --staged",
+ * "⚒ fetch_url https://…"). Returns null for tools with no meaningful single
+ * detail — those keep the count tally.
  */
 export function getCompactToolDetail(
 	toolName: string,
 	rawArgs: unknown,
-): {verb: string; detail: string} | null {
+): {detail: string} | null {
 	const args = parseToolArguments<Record<string, unknown>>(rawArgs);
 	const str = (v: unknown): string | undefined =>
 		typeof v === 'string' && v.trim() ? v : undefined;
@@ -184,14 +208,14 @@ export function getCompactToolDetail(
 	switch (toolName) {
 		case 'execute_bash': {
 			const command = str(args.command);
-			return command ? {verb: 'Ran', detail: command} : null;
+			return command ? {detail: command} : null;
 		}
 		case 'read_file': {
 			const path = str(args.path) ?? str(args.file_path);
-			return path ? {verb: 'Read', detail: path} : null;
+			return path ? {detail: path} : null;
 		}
 		case 'git_status':
-			return {verb: 'Ran', detail: 'git status'};
+			return {detail: 'git status'};
 		case 'git_diff': {
 			// Synthesize the equivalent git invocation from the structured args
 			// so the user sees what actually ran.
@@ -202,7 +226,7 @@ export function getCompactToolDetail(
 			if (base) parts.push(base);
 			const file = str(args.file);
 			if (file) parts.push(file);
-			return {verb: 'Ran', detail: parts.join(' ')};
+			return {detail: parts.join(' ')};
 		}
 		case 'git_log': {
 			const parts = ['git log'];
@@ -213,35 +237,35 @@ export function getCompactToolDetail(
 			if (since) parts.push(`--since=${since}`);
 			const file = str(args.file);
 			if (file) parts.push(file);
-			return {verb: 'Ran', detail: parts.join(' ')};
+			return {detail: parts.join(' ')};
 		}
 		case 'search_file_contents': {
 			const query = str(args.query) ?? str(args.pattern);
-			return query ? {verb: 'Searched', detail: query} : null;
+			return query ? {detail: query} : null;
 		}
 		case 'find_files': {
 			const pattern = str(args.pattern) ?? str(args.query);
-			return pattern ? {verb: 'Found', detail: pattern} : null;
+			return pattern ? {detail: pattern} : null;
 		}
 		case 'list_directory': {
 			const path = str(args.path) ?? '.';
-			return {verb: 'Listed', detail: path};
+			return {detail: path};
 		}
 		case 'fetch_url': {
 			const url = str(args.url);
-			return url ? {verb: 'Fetched', detail: url} : null;
+			return url ? {detail: url} : null;
 		}
 		case 'web_search': {
 			const query = str(args.query);
-			return query ? {verb: 'Searched web for', detail: query} : null;
+			return query ? {detail: query} : null;
 		}
 		case 'ask_question': {
 			const question = str(args.question);
-			return question ? {verb: 'Asked', detail: question} : null;
+			return question ? {detail: question} : null;
 		}
 		case 'lsp_get_diagnostics': {
 			const path = str(args.path) ?? str(args.file_path);
-			return path ? {verb: 'Got diagnostics for', detail: path} : null;
+			return path ? {detail: path} : null;
 		}
 		default:
 			// Unknown / MCP / no-single-detail tools keep the count tally.
@@ -268,12 +292,12 @@ const PREVIEW_EXPANDED_LINES = 50;
  * Static).
  */
 function CompactDetailResult({
-	verb,
+	toolName,
 	detail,
 	output,
 	expanded,
 }: {
-	verb: string;
+	toolName: string;
 	detail: string;
 	output?: string;
 	expanded?: boolean;
@@ -300,10 +324,9 @@ function CompactDetailResult({
 	return (
 		<Box flexDirection="column" width={boxWidth}>
 			<Text wrap="truncate-end">
-				<Text color={colors.tool}>
-					{'⚒'} {verb}
-				</Text>
-				<Text color={colors.text}> {flatDetail}</Text>
+				<Text color={colors.tool}>{'⚒'} </Text>
+				<Text color={colors.primary}>{toolName}</Text>
+				<Text color={colors.secondary}> {flatDetail}</Text>
 			</Text>
 			{previewLines.map((line, i) => (
 				<Box key={`preview-${i}-${line.slice(0, 16)}`}>
@@ -331,55 +354,20 @@ export function getGroupedCompactDescription(
 	toolName: string,
 	count: number,
 ): string {
-	const s = count === 1 ? '' : 's';
-	switch (toolName) {
-		case 'read_file':
-			return `Read ${count} file${s}`;
-		case 'write_file':
-			return `Wrote ${count} file${s}`;
-		case 'string_replace':
-			return `Made ${count} edit${s}`;
-		case 'execute_bash':
-			return `Ran ${count} command${s}`;
-		case 'search_file_contents':
-			return `Searched for ${count} pattern${s}`;
-		case 'find_files':
-			return `Ran ${count} file search${count === 1 ? '' : 'es'}`;
-		case 'list_directory':
-			return `Listed ${count} director${count === 1 ? 'y' : 'ies'}`;
-		case 'web_search':
-			return `Ran ${count} web search${count === 1 ? '' : 'es'}`;
-		case 'fetch_url':
-			return `Fetched ${count} URL${s}`;
-		case 'git_status':
-		case 'git_diff':
-		case 'git_log':
-			return `Ran ${count} git command${s}`;
-		case 'lsp_get_diagnostics':
-			return `Got diagnostics ${count} time${s}`;
-		case 'ask_question':
-			return `Asked ${count} question${s}`;
-		case 'agent':
-			return `Delegated ${count} task${s} to subagent${s}`;
-		default:
-			return `Executed ${toolName} \u00d7 ${count}`;
-	}
+	return count === 1 ? toolName : `${toolName} ×${count}`;
 }
 
 /**
  * Live display component for running compact tool counts.
- * Shows accumulated counts during execution (e.g. "⚒ Read 7 files").
+ * Shows accumulated counts during execution (e.g. "⚒ read_file ×7").
  * Rendered in the live area (not Static) so it updates in-place.
  */
 export function LiveCompactCounts({counts}: {counts: Record<string, number>}) {
-	const {colors} = useTheme();
+	const entries = Object.entries(counts);
+
 	return (
 		<Box flexDirection="column" marginBottom={1}>
-			{Object.entries(counts).map(([toolName, count]) => (
-				<Text key={toolName} color={colors.tool}>
-					{'\u2692'} {getGroupedCompactDescription(toolName, count)}
-				</Text>
-			))}
+			{entries.length > 0 && <CompactToolCountsLine entries={entries} />}
 		</Box>
 	);
 }
@@ -427,13 +415,7 @@ function CompactCountsSummaryBlock({
 			marginLeft={indent && !colors.assistantIcon ? 2 : 0}
 			marginBottom={1}
 		>
-			{entries.map(([toolName, count]) => (
-				<CompactToolResult
-					key={toolName}
-					toolName={toolName}
-					description={getGroupedCompactDescription(toolName, count)}
-				/>
-			))}
+			<CompactToolCountsLine entries={entries} />
 		</Box>
 	);
 }
@@ -549,7 +531,7 @@ export async function displayToolResult(
 		// keeps the generic CompactToolResult fallback below. Tools with no
 		// meaningful single detail (getCompactToolDetail → null) also fall
 		// through to the tally.
-		if (iconTheme) {
+		if (iconTheme && result.name !== 'execute_bash') {
 			const toolDetail = getCompactToolDetail(
 				result.name,
 				toolCall.function.arguments,
@@ -558,7 +540,7 @@ export async function displayToolResult(
 				addToChatQueue(
 					<CompactDetailResult
 						key={generateKey(`tool-compact-${result.tool_call_id}`)}
-						verb={toolDetail.verb}
+						toolName={result.name}
 						detail={toolDetail.detail}
 						output={result.content}
 						expanded={iconDisplay?.expanded ?? false}
@@ -568,12 +550,10 @@ export async function displayToolResult(
 			}
 		}
 
-		const description = getGroupedCompactDescription(result.name, 1);
 		addToChatQueue(
 			<CompactToolResult
 				key={generateKey(`tool-compact-${result.tool_call_id}`)}
 				toolName={result.name}
-				description={description}
 			/>,
 		);
 		return;

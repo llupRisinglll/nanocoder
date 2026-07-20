@@ -1,7 +1,6 @@
 import {Box, Text} from 'ink';
 import React, {memo} from 'react';
 import AssistantMessage from '@/components/assistant-message';
-import AssistantReasoning from '@/components/assistant-reasoning';
 import {InfoMessage} from '@/components/message-box';
 import UserMessage from '@/components/user-message';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
@@ -17,8 +16,6 @@ import {parseToolArguments} from '@/utils/tool-args-parser';
  * loaded into model context — only their UI replay is omitted, with a note.
  */
 const MAX_REPLAYED_MESSAGES = 60;
-
-/** Length past which a tool descriptor (command, query, etc.) is truncated. */
 const MAX_DESCRIPTOR_LENGTH = 80;
 
 function truncate(value: string, max = MAX_DESCRIPTOR_LENGTH): string {
@@ -26,11 +23,6 @@ function truncate(value: string, max = MAX_DESCRIPTOR_LENGTH): string {
 	return single.length > max ? `${single.slice(0, max - 1)}…` : single;
 }
 
-/**
- * Derive a short, human-readable descriptor for a tool call from its arguments
- * (file path, command, search pattern, etc.). Display-only: parsed leniently so
- * a malformed arg string never throws while replaying history.
- */
 function describeToolCall(toolCall: ToolCall): string {
 	const name = toolCall.function.name;
 	const args = parseToolArguments<Record<string, unknown>>(
@@ -43,6 +35,7 @@ function describeToolCall(toolCall: ToolCall): string {
 		case 'read_file':
 		case 'write_file':
 		case 'string_replace':
+		case 'diff_edit':
 		case 'list_directory':
 			return str('path') || str('file_path');
 		case 'execute_bash':
@@ -61,8 +54,6 @@ function describeToolCall(toolCall: ToolCall): string {
 			return [type, desc].filter(Boolean).join(': ');
 		}
 		default: {
-			// Fall back to a compact JSON-ish view of the args so unknown/custom
-			// tools still show something identifying.
 			const keys = Object.keys(args);
 			if (keys.length === 0) return '';
 			const first = args[keys[0]];
@@ -79,32 +70,80 @@ function isErrorResult(content: string | undefined): boolean {
 	);
 }
 
-/**
- * Compact one-line summary of a historical tool call and its result. Mirrors the
- * live compact-tool look (the ⚒ glyph in tool color) without re-running the
- * tool's formatter — replaying history must be side-effect free (formatters can
- * touch VS Code, the filesystem, etc.) and cheap.
- */
+interface PendingToolGroup {
+	count: number;
+	descriptors: string[];
+	failed: boolean;
+}
+
+interface LatestToolHint {
+	toolName: string;
+	descriptor: string;
+}
+
+function moreLabel(toolName: string, count: number): string {
+	const noun =
+		toolName === 'execute_bash'
+			? 'command'
+			: toolName === 'read_file'
+				? 'file'
+				: 'call';
+	return `${count} more ${noun}${count === 1 ? '' : 's'}`;
+}
+
 const HistoryToolSummary = memo(function HistoryToolSummary({
-	toolCall,
-	resultContent,
+	groups,
+	latestHint,
 }: {
-	toolCall: ToolCall;
-	resultContent?: string;
+	groups: Array<[string, PendingToolGroup]>;
+	latestHint?: LatestToolHint;
 }) {
 	const {colors} = useTheme();
 	const boxWidth = useTerminalWidth();
-	const descriptor = describeToolCall(toolCall);
-	const failed = isErrorResult(resultContent);
-	const label = descriptor
-		? `${toolCall.function.name}  ${truncate(descriptor)}`
-		: toolCall.function.name;
+	const hintGroup = latestHint
+		? groups.find(([name]) => name === latestHint.toolName)?.[1]
+		: undefined;
+	const remaining = hintGroup ? Math.max(0, hintGroup.count - 1) : 0;
+	const moreText = latestHint
+		? `… +${moreLabel(latestHint.toolName, remaining)} (ctrl + o to verbose)`
+		: '';
 
 	return (
+		<Box width={boxWidth} flexDirection="column">
+			<Text>
+				<Text color={colors.tool}>⚒ </Text>
+				{groups.map(([toolName, group], index) => (
+					<React.Fragment key={toolName}>
+						<Text color={colors.primary}>{toolName}</Text>
+						{group.count > 1 && (
+							<Text color={colors.text}> ×{group.count}</Text>
+						)}
+						{group.failed && <Text color={colors.error}> failed</Text>}
+						{index + 1 < groups.length && (
+							<Text color={colors.secondary}>, </Text>
+						)}
+					</React.Fragment>
+				))}
+			</Text>
+			{latestHint?.descriptor && (
+				<Text color={colors.secondary}>
+					└ {truncate(latestHint.descriptor)}
+				</Text>
+			)}
+			{latestHint && remaining > 0 && (
+				<Text color={colors.secondary}> {moreText}</Text>
+			)}
+		</Box>
+	);
+});
+
+const HistoryThoughtSummary = memo(function HistoryThoughtSummary() {
+	const {colors} = useTheme();
+	const boxWidth = useTerminalWidth();
+	return (
 		<Box width={boxWidth}>
-			<Text color={failed ? colors.error : colors.tool}>
-				{'⚒'} {label}
-				{failed ? ' (failed)' : ''}
+			<Text color={colors.secondary}>
+				⚙ Thought <Text color={colors.secondary}>(ctrl+r to expand)</Text>
 			</Text>
 		</Box>
 	);
@@ -143,6 +182,34 @@ export function buildSessionHistoryComponents(
 	// Replay only the trailing window; note how many earlier messages are hidden.
 	const hiddenCount = Math.max(0, messages.length - MAX_REPLAYED_MESSAGES);
 	const replayed = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+	let pendingThought = false;
+	let pendingToolGroups: Record<string, PendingToolGroup> = {};
+	let latestToolHint: LatestToolHint | undefined;
+
+	const flushPendingActivity = () => {
+		const toolEntries = Object.entries(pendingToolGroups);
+		if (!pendingThought && toolEntries.length === 0) {
+			return;
+		}
+
+		if (toolEntries.length > 0) {
+			components.push(
+				<HistoryToolSummary
+					key={generateKey('resume-tool-activity')}
+					groups={toolEntries}
+					latestHint={latestToolHint}
+				/>,
+			);
+		}
+		if (pendingThought) {
+			components.push(
+				<HistoryThoughtSummary key={generateKey('resume-reasoning')} />,
+			);
+		}
+		pendingThought = false;
+		pendingToolGroups = {};
+		latestToolHint = undefined;
+	};
 
 	if (hiddenCount > 0) {
 		components.push(
@@ -161,6 +228,7 @@ export function buildSessionHistoryComponents(
 	for (const message of replayed) {
 		switch (message.role) {
 			case 'user':
+				flushPendingActivity();
 				if (message.content.trim()) {
 					components.push(
 						<UserMessage
@@ -172,16 +240,8 @@ export function buildSessionHistoryComponents(
 				break;
 
 			case 'assistant': {
-				if (message.reasoning?.trim()) {
-					components.push(
-						<AssistantReasoning
-							key={generateKey('resume-reasoning')}
-							reasoning={message.reasoning}
-							expand={false}
-						/>,
-					);
-				}
 				if (message.content.trim()) {
+					flushPendingActivity();
 					components.push(
 						<AssistantMessage
 							key={generateKey('resume-assistant')}
@@ -190,22 +250,29 @@ export function buildSessionHistoryComponents(
 						/>,
 					);
 				}
+				if (message.reasoning?.trim()) {
+					pendingThought = true;
+				}
 				if (message.tool_calls && message.tool_calls.length > 0) {
-					components.push(
-						<Box
-							key={generateKey('resume-tools')}
-							flexDirection="column"
-							marginBottom={1}
-						>
-							{message.tool_calls.map(toolCall => (
-								<HistoryToolSummary
-									key={toolCall.id}
-									toolCall={toolCall}
-									resultContent={resultsById.get(toolCall.id)}
-								/>
-							))}
-						</Box>,
-					);
+					for (const toolCall of message.tool_calls) {
+						const toolName = toolCall.function.name;
+						const group =
+							pendingToolGroups[toolName] ??
+							(pendingToolGroups[toolName] = {
+								count: 0,
+								descriptors: [],
+								failed: false,
+							});
+						group.count += 1;
+						const descriptor = describeToolCall(toolCall);
+						if (descriptor) {
+							group.descriptors.push(descriptor);
+							latestToolHint = {toolName, descriptor};
+						}
+						if (isErrorResult(resultsById.get(toolCall.id))) {
+							group.failed = true;
+						}
+					}
 				}
 				break;
 			}
@@ -216,6 +283,7 @@ export function buildSessionHistoryComponents(
 				break;
 		}
 	}
+	flushPendingActivity();
 
 	return components;
 }

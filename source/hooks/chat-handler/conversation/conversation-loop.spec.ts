@@ -1373,7 +1373,7 @@ test.serial(
 	async t => {
 		// Regression: counts accumulated across prior reasoning-only tool turns
 		// (e.g. two execute_bash calls) must flush as ONE combined summary
-		// ("Ran 2 commands"), not stacked "Ran 1 command" lines. The flush
+		// ("execute_bash ×2"), not stacked single-tool lines. The flush
 		// fires on narrative-text completion, not on reasoning.
 		resetLastTurnHadReasoning();
 		const queuedComponents: any[] = [];
@@ -1408,14 +1408,49 @@ test.serial(
 		).map(([toolName, count]) => getGroupedCompactDescription(toolName, count));
 		t.deepEqual(
 			descriptions,
-			['Ran 2 commands'],
-			'Two accumulated bash calls combine into "Ran 2 commands"',
+			['execute_bash ×2'],
+			'Two accumulated bash calls combine into "execute_bash ×2"',
 		);
 		t.deepEqual(
 			compactToolCountsRef.current,
 			{},
 			'Accumulator is reset after flushing',
 		);
+	},
+);
+
+test.serial(
+	'processAssistantResponse - omnicode merged ThoughtRunSummary includes compact tool counts',
+	async t => {
+		resetLastTurnHadReasoning();
+		resetPendingThoughtAccumulator();
+
+		const queuedComponents: any[] = [];
+		const compactToolCountsRef = {current: {execute_bash: 3}};
+		const params = createDefaultParams({
+			client: createMockClient({
+				content: 'All done!',
+				reasoning: 'Let me summarise the results.',
+				toolCalls: undefined,
+				toolsDisabled: false,
+			}),
+			addToChatQueue: (component: any) => {
+				queuedComponents.push(component);
+			},
+			compactToolCountsRef,
+			onSetCompactToolCounts: () => {},
+			iconThemeRef: {current: true},
+			reasoningExpandedRef: {current: false},
+		});
+
+		await processAssistantResponse(params);
+
+		const thoughtSummaries = queuedComponents.filter((c: any) =>
+			String(c.key).includes('thought-run-summary'),
+		);
+		t.is(thoughtSummaries.length, 1);
+		t.deepEqual(thoughtSummaries[0].props.toolCounts, {execute_bash: 3});
+		t.deepEqual(compactToolCountsRef.current, {});
 	},
 );
 

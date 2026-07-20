@@ -79,6 +79,90 @@ test('renders tool calls as compact summaries paired with results', t => {
 	t.notRegex(output, /failed/);
 });
 
+test('collapses repeated historical tool calls by name', t => {
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			reasoning: 'checking worktrees',
+			tool_calls: [
+				{
+					id: 'call_1',
+					function: {name: 'execute_bash', arguments: {command: 'git status'}},
+				},
+			],
+		},
+		{role: 'tool', tool_call_id: 'call_1', name: 'execute_bash', content: 'ok'},
+		{
+			role: 'assistant',
+			content: '',
+			reasoning: 'checking another repo',
+			tool_calls: [
+				{
+					id: 'call_2',
+					function: {name: 'execute_bash', arguments: {command: 'docker ps'}},
+				},
+				{
+					id: 'call_3',
+					function: {name: 'execute_bash', arguments: {command: 'ls'}},
+				},
+			],
+		},
+		{role: 'tool', tool_call_id: 'call_2', name: 'execute_bash', content: 'ok'},
+		{role: 'tool', tool_call_id: 'call_3', name: 'execute_bash', content: 'ok'},
+	];
+
+	const output = renderHistory(messages);
+
+	t.regex(output, /execute_bash ×3/);
+	t.regex(output, /└ ls/);
+	t.regex(output, /… \+2 more commands \(ctrl \+ o to verbose\)/);
+	t.regex(output, /Thought\s+\(ctrl\+r to expand\)/);
+	t.notRegex(output, /Thought ×/);
+	t.notRegex(output, /docker ps/);
+});
+
+test('combines mixed historical tool groups into one header with latest hint', t => {
+	const toolCalls = [
+		...Array.from({length: 5}, (_, index) => ({
+			id: `bash_${index}`,
+			function: {
+				name: 'execute_bash',
+				arguments: {command: `echo bash ${index}`},
+			},
+		})),
+		...Array.from({length: 2}, (_, index) => ({
+			id: `tasks_${index}`,
+			function: {
+				name: 'write_tasks',
+				arguments: {tasks: `tasks ${index}`},
+			},
+		})),
+	];
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			reasoning: 'checking',
+			tool_calls: toolCalls,
+		},
+		...toolCalls.map(toolCall => ({
+			role: 'tool' as const,
+			tool_call_id: toolCall.id,
+			name: toolCall.function.name,
+			content: 'ok',
+		})),
+	];
+
+	const output = renderHistory(messages);
+
+	t.regex(output, /execute_bash ×5, write_tasks ×2/);
+	t.regex(output, /└ tasks/);
+	t.regex(output, /… \+1 more call \(ctrl \+ o to verbose\)/);
+	t.regex(output, /Thought\s+\(ctrl\+r to expand\)/);
+	t.notRegex(output, /echo bash 0/);
+});
+
 test('marks failed tool calls', t => {
 	const messages: Message[] = [
 		{
@@ -103,6 +187,7 @@ test('marks failed tool calls', t => {
 
 	t.regex(output, /execute_bash/);
 	t.regex(output, /failed/);
+	t.regex(output, /ls \/nope/);
 });
 
 test('truncates long histories and notes hidden messages', t => {
