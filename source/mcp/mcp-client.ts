@@ -40,6 +40,7 @@ export class MCPClient {
 	private clients: Map<string, Client> = new Map();
 	private transports: Map<string, ClientTransport> = new Map();
 	private serverTools: Map<string, MCPTool[]> = new Map();
+	private serverInstructions: Map<string, string> = new Map();
 	private serverConfigs: Map<string, MCPServer> = new Map();
 	private isConnected: boolean = false;
 	private logger = getLogger();
@@ -149,10 +150,17 @@ export class MCPClient {
 					transport: normalizedServer.transport,
 				});
 
-				// Store client, transport, and server config
+				// Store client, transport, server config, and optional server instructions.
+				// MCP servers may expose natural-language usage guidance in the initialize
+				// result; include it in the system prompt separately from the tool schema
+				// so models know server-specific conventions.
 				this.clients.set(normalizedServer.name, client);
 				this.transports.set(normalizedServer.name, transport);
 				this.serverConfigs.set(normalizedServer.name, normalizedServer);
+				const instructions = client.getInstructions()?.trim();
+				if (instructions) {
+					this.serverInstructions.set(normalizedServer.name, instructions);
+				}
 
 				// List available tools from this server
 				const toolsResult = await client.listTools();
@@ -276,6 +284,12 @@ export class MCPClient {
 			this.isConnected = true;
 			return results;
 		}, correlationId);
+	}
+
+	getInstructions(): Array<{name: string; instructions: string}> {
+		return Array.from(this.serverInstructions.entries())
+			.map(([name, instructions]) => ({name, instructions}))
+			.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
 	getAllTools(): Tool[] {
