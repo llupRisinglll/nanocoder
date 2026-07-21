@@ -276,6 +276,10 @@ confirm() {
 		echo "[dry-run] would prompt: $prompt (auto-confirmed for --dry-run)"
 		return 0
 	fi
+	if [ "${FORK_FLOW_YES:-}" = "1" ]; then
+		echo "$prompt [auto-confirmed by FORK_FLOW_YES=1]"
+		return 0
+	fi
 	local reply
 	read -r -p "$prompt [y/N] " reply
 	[[ "$reply" =~ ^[Yy]$ ]]
