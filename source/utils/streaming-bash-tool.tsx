@@ -36,6 +36,7 @@ export async function runStreamingBashTool(
 	setLiveComponent: (component: React.ReactNode) => void,
 	keyPrefix: string,
 	signal?: AbortSignal,
+	onStarted?: (executionId: string, command: string) => void,
 ): Promise<StreamingBashRun> {
 	const parsedArgs = parseToolArguments(toolCall.function.arguments);
 
@@ -58,6 +59,7 @@ export async function runStreamingBashTool(
 
 	const commandStr = parsedArgs.command as string;
 	const {executionId, promise} = executeBashCommand(commandStr, {signal});
+	onStarted?.(executionId, commandStr);
 	setLiveComponent(
 		<BashProgress
 			key={generateKey(`${keyPrefix}-${toolCall.id}`)}

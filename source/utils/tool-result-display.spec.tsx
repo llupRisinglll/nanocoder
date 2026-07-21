@@ -748,6 +748,28 @@ test('LiveCompactCounts - merges completed and running compact counts', t => {
 	unmount();
 });
 
+test('LiveCompactCounts - renders live detail tails for running compact groups', t => {
+	const {lastFrame, unmount} = renderWithTheme(
+		<LiveCompactCounts
+			counts={{
+				agent: {
+					count: 1,
+					details: ['explore: inspect repository'],
+					liveDetails: () => ['explore: running read_file'],
+					running: true,
+				},
+			}}
+		/>,
+	);
+
+	let output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /Ran Task \(running\)/);
+	t.regex(output!, /└\s+explore: inspect repository/);
+	t.regex(output!, /explore: running read_file/);
+	unmount();
+});
+
 test('LiveCompactCounts - truncates grouped running details and reports hidden commands', t => {
 	const {lastFrame, unmount} = renderWithTheme(
 		<LiveCompactCounts

@@ -1,6 +1,6 @@
 import {stripVTControlCharacters} from 'node:util';
 import {Box, Text} from 'ink';
-import React from 'react';
+import React, {useEffect, useReducer} from 'react';
 import {computeDiffLines} from '@/components/diff-view/compute';
 import DiffView from '@/components/diff-view/DiffView';
 import {ErrorMessage} from '@/components/message-box';
@@ -33,6 +33,7 @@ export interface CompactToolActivity {
 	count: number;
 	detail?: string;
 	details?: string[];
+	liveDetails?: () => string[];
 	failed?: boolean;
 	running?: boolean;
 }
@@ -73,6 +74,13 @@ function mergeCompactToolEntries(
 					count: (current?.count ?? 0) + activity.count,
 					detail: current?.detail ?? activity.detail,
 					details: [...(current?.details ?? []), ...(activity.details ?? [])],
+					liveDetails:
+						current?.liveDetails || activity.liveDetails
+							? () => [
+									...(current?.liveDetails?.() ?? []),
+									...(activity.liveDetails?.() ?? []),
+								]
+							: undefined,
 					failed: current?.failed ?? activity.failed,
 					running: current?.running || activity.running,
 				});
@@ -267,7 +275,11 @@ function compactRunningDetailLines(
 	const lines: string[] = [];
 	for (const [, activity] of entries) {
 		if (options?.runningOnly && !activity.running) continue;
-		for (const detail of activity.details ?? []) {
+		const details = [
+			...(activity.details ?? []),
+			...(activity.liveDetails?.() ?? []),
+		];
+		for (const detail of details) {
 			const normalized = truncateDetail(detail, 110);
 			if (!normalized || seen.has(normalized)) continue;
 			seen.add(normalized);
@@ -635,6 +647,19 @@ export function LiveCompactCounts({
 	const entries = normalizeCompactToolEntries(counts);
 	const {entries: mergedEntries, hasRunning} = mergeCompactToolEntries(entries);
 	const {colors} = useTheme();
+	const hasLiveDetails = mergedEntries.some(([, activity]) =>
+		Boolean(activity.liveDetails),
+	);
+	const [, forceRender] = useReducer((x: number) => x + 1, 0);
+
+	useEffect(() => {
+		if (!hasRunning || !hasLiveDetails) return;
+		const interval = setInterval(() => {
+			forceRender();
+		}, 100);
+		return () => clearInterval(interval);
+	}, [hasRunning, hasLiveDetails]);
+
 	const detailPreview = compactRunningDetailLines(mergedEntries, {
 		expanded,
 		runningOnly: hasRunning,

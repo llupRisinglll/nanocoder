@@ -828,7 +828,7 @@ export const processAssistantResponse = async (
 			compactDisplay: compactToolDisplayRef?.current,
 			onCompactToolCount: (
 				toolName: string,
-				detail?: string,
+				detail?: string | string[],
 				failed?: boolean,
 			) => {
 				if (compactToolCountsRef) {
@@ -837,12 +837,18 @@ export const processAssistantResponse = async (
 					const current = counts[key] ?? {count: 0, failed};
 					const currentActivity =
 						typeof current === 'number' ? {count: current} : current;
+					const nextDetails = Array.isArray(detail)
+						? detail
+						: detail
+							? [detail]
+							: [];
 					counts[key] = {
 						count: currentActivity.count + 1,
-						detail: detail ?? currentActivity.detail,
-						details: detail
-							? [...(currentActivity.details ?? []), detail]
-							: currentActivity.details,
+						detail: nextDetails[0] ?? currentActivity.detail,
+						details:
+							nextDetails.length > 0
+								? [...(currentActivity.details ?? []), ...nextDetails]
+								: currentActivity.details,
 						failed: failed ?? currentActivity.failed,
 					};
 					onSetCompactToolCounts?.({...counts});
