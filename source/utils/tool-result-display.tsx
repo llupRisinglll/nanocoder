@@ -3,6 +3,7 @@ import {Box, Text} from 'ink';
 import React, {useEffect, useReducer} from 'react';
 import {computeDiffLines} from '@/components/diff-view/compute';
 import DiffView from '@/components/diff-view/DiffView';
+import {highlightCode} from '@/components/diff-view/syntax';
 import {ErrorMessage} from '@/components/message-box';
 import {ToolCallHeader} from '@/components/simple-tool-formatter';
 import ToolMessage from '@/components/tool-message';
@@ -268,12 +269,12 @@ function compactRunningDetailLines(
 	options?: {runningOnly?: boolean; expanded?: boolean},
 	maxLines = 3,
 ): {
-	lines: string[];
+	lines: Array<{toolName: string; text: string}>;
 	hiddenCount: number;
 } {
 	const seen = new Set<string>();
-	const lines: string[] = [];
-	for (const [, activity] of entries) {
+	const lines: Array<{toolName: string; text: string}> = [];
+	for (const [toolName, activity] of entries) {
 		if (options?.runningOnly && !activity.running) continue;
 		const details = [
 			...(activity.details ?? []),
@@ -283,7 +284,7 @@ function compactRunningDetailLines(
 			const normalized = truncateDetail(detail, 110);
 			if (!normalized || seen.has(normalized)) continue;
 			seen.add(normalized);
-			lines.push(normalized);
+			lines.push({toolName, text: normalized});
 		}
 	}
 
@@ -292,6 +293,23 @@ function compactRunningDetailLines(
 		lines: displayed,
 		hiddenCount: Math.max(0, lines.length - displayed.length),
 	};
+}
+
+function CompactDetailLineText({
+	toolName,
+	text,
+}: {
+	toolName: string;
+	text: string;
+}) {
+	const {colors} = useTheme();
+	const display =
+		toolName === 'execute_bash' ? highlightCode(text, 'bash') : text;
+	return (
+		<Text wrap="truncate-end" color={colors.text}>
+			{display}
+		</Text>
+	);
 }
 
 export function getCompactToolExpandHintText(expanded: boolean): string {
@@ -678,11 +696,11 @@ export function LiveCompactCounts({
 				</Text>
 			)}
 			{detailPreview.lines.map((line, index) => (
-				<Text key={`${index}-${line.slice(0, 24)}`}>
+				<Text key={`${index}-${line.text.slice(0, 24)}`}>
 					<Text color={colors.secondary}>
 						{index === 0 ? '  └  ' : '     '}
 					</Text>
-					<Text color={colors.text}>{line}</Text>
+					<CompactDetailLineText toolName={line.toolName} text={line.text} />
 				</Text>
 			))}
 			{detailPreview.hiddenCount > 0 && (
@@ -758,11 +776,11 @@ export function CompactToolCountsSummaryBlock({
 				/>
 			</Text>
 			{detailPreview.lines.map((line, index) => (
-				<Text key={`${index}-${line.slice(0, 24)}`}>
+				<Text key={`${index}-${line.text.slice(0, 24)}`}>
 					<Text color={colors.secondary}>
 						{index === 0 ? '  └  ' : '     '}
 					</Text>
-					<Text color={colors.text}>{line}</Text>
+					<CompactDetailLineText toolName={line.toolName} text={line.text} />
 				</Text>
 			))}
 			{detailPreview.hiddenCount > 0 && (
