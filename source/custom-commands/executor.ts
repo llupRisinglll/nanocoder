@@ -13,6 +13,9 @@ export class CustomCommandExecutor {
 		// Build template variables from parameters and arguments
 		const variables: Record<string, string> = {};
 
+		// Always provide all args as a single variable, even without declared parameters
+		variables['args'] = args.join(' ');
+
 		if (command.metadata.parameters && command.metadata.parameters.length > 0) {
 			// Map arguments to parameters positionally. A missing (or empty)
 			// argument falls back to the parameter's inline default, if any.
@@ -22,9 +25,6 @@ export class CustomCommandExecutor {
 				variables[name] =
 					provided !== undefined && provided !== '' ? provided : defaultValue;
 			});
-
-			// Also provide all args as a single variable
-			variables['args'] = args.join(' ');
 		}
 
 		// Add some default context variables
@@ -39,8 +39,13 @@ export class CustomCommandExecutor {
 		);
 		const promptContent = substituteTemplateVariables(sectioned, variables);
 
-		// Build the full prompt
-		let fullPrompt = `[Executing custom command: /${command.fullName}]\n\n${promptContent}`;
+		// Build the full prompt. Include raw arguments in the display header so
+		// the transcript mirrors what the user typed, while the expanded body
+		// below remains the model-facing command prompt.
+		const invocation = [`/${command.fullName}`, variables.args]
+			.filter(Boolean)
+			.join(' ');
+		let fullPrompt = `[Executing custom command: ${invocation}]\n\n${promptContent}`;
 
 		// Append resource information if available
 		if (command.loadedResources?.length) {

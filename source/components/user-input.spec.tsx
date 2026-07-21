@@ -2,6 +2,7 @@ import test from 'ava';
 import {render} from 'ink-testing-library';
 import React from 'react';
 import stripAnsi from 'strip-ansi';
+import {commandRegistry} from '../commands';
 import {themes} from '../config/themes';
 import {ThemeContext} from '../hooks/useTheme';
 import {UIStateProvider, useUIStateContext} from '../hooks/useUIState';
@@ -152,7 +153,10 @@ test('UserInput renders plan mode indicator', t => {
 });
 
 test('UserInput renders with custom commands', t => {
-	const customCommands = ['custom-command', 'another-command'];
+	const customCommands = [
+		{name: 'custom-command'},
+		{name: 'another-command'},
+	];
 	const {lastFrame} = render(
 		<TestWrapper>
 			<UserInput customCommands={customCommands} />
@@ -569,7 +573,7 @@ test('UserInput renders with all props provided', t => {
 			<UserInput
 				onSubmit={() => {}}
 				placeholder="Test"
-				customCommands={['test']}
+				customCommands={[{name: 'test'}]}
 				disabled={false}
 				onToggleMode={() => {}}
 				developmentMode="normal"
@@ -748,7 +752,11 @@ test('UserInput does not show ctrl-o hint when onToggleCompactDisplay is not pro
 // ============================================================================
 
 // Test commands to ensure completions appear in test environment
-const TEST_COMMANDS = ['test-clear', 'test-help', 'test-exit'];
+const TEST_COMMANDS = [
+	{name: 'test-clear'},
+	{name: 'test-help'},
+	{name: 'test-exit'},
+];
 
 test('arrow key navigation updates the selected completion', async t => {
 	const {stdin, lastFrame, unmount} = render(
@@ -863,7 +871,7 @@ test('completion menu dismissal/reset after selection or escape', async t => {
 test('UserInput renders completions text when typing /', async t => {
 	const {stdin, lastFrame, unmount} = render(
 		<TestWrapper>
-			<UserInput customCommands={['help', 'model']} />
+			<UserInput customCommands={[{name: 'help'}, {name: 'model'}]} />
 		</TestWrapper>
 	);
 
@@ -878,10 +886,9 @@ test('UserInput renders completions text when typing /', async t => {
 });
 
 test('UserInput windows long slash completion lists', async t => {
-	const commands = Array.from(
-		{length: 14},
-		(_, index) => `zz-window-${String(index).padStart(2, '0')}`,
-	);
+	const commands = Array.from({length: 14}, (_, index) => ({
+		name: `zz-window-${String(index).padStart(2, '0')}`,
+	}));
 	const {stdin, lastFrame, unmount} = render(
 		<TestWrapper>
 			<UserInput forceFocus={true} customCommands={commands} />
@@ -918,7 +925,7 @@ test('UserInput windows long slash completion lists', async t => {
 test('UserInput renders completions BEFORE the mode indicator (inside the input box)', async t => {
 	const {stdin, lastFrame, unmount} = render(
 		<TestWrapper>
-			<UserInput developmentMode="normal" customCommands={['help', 'model']} />
+			<UserInput developmentMode="normal" customCommands={[{name: 'help'}, {name: 'model'}]} />
 		</TestWrapper>
 	);
 
@@ -943,7 +950,7 @@ test('UserInput renders completions BEFORE the mode indicator (inside the input 
 test('UserInput completions appear on a line above the mode indicator', async t => {
 	const {stdin, lastFrame, unmount} = render(
 		<TestWrapper>
-			<UserInput developmentMode="normal" customCommands={['help', 'model']} />
+			<UserInput developmentMode="normal" customCommands={[{name: 'help'}, {name: 'model'}]} />
 		</TestWrapper>
 	);
 
@@ -983,3 +990,255 @@ test('UserInput does not show completions when input is empty', t => {
 	unmount();
 });
 
+// ============================================================================
+// Command Completion Description Tests
+// ============================================================================
+
+test('completion menu shows a built-in command description on its row', async t => {
+	commandRegistry.register({
+		name: 'described-builtin',
+		description: 'A described built-in command for testing',
+		handler: async () => undefined,
+	});
+
+	const {stdin, lastFrame, unmount} = render(
+		<TestWrapper>
+			<UserInput forceFocus={true} />
+		</TestWrapper>,
+	);
+
+	stdin.write('/described-builtin');
+	await waitForFrame(lastFrame, /Available commands:/);
+
+	const output = stripAnsi(lastFrame()!);
+	t.regex(output, /\/described-builtin/);
+	t.regex(output, /A described built-in command for testing/);
+	unmount();
+});
+
+test('completion menu shows a custom command description passed via the customCommands prop', async t => {
+	const {stdin, lastFrame, unmount} = render(
+		<TestWrapper>
+			<UserInput
+				forceFocus={true}
+				customCommands={[
+					{name: 'my-skill', description: 'Runs the my-skill workflow'},
+				]}
+			/>
+		</TestWrapper>,
+	);
+
+	stdin.write('/my-skill');
+	await waitForFrame(lastFrame, /Available commands:/);
+
+	const output = stripAnsi(lastFrame()!);
+	t.regex(output, /\/my-skill/);
+	t.regex(output, /Runs the my-skill workflow/);
+	unmount();
+});
+
+// Serial: these two mutate the global process.stdout.columns. Run alone so
+// the resized width can't leak into a concurrently-rendering sibling test.
+test.serial(
+	'completion menu truncates a long description to a single line',
+	async t => {
+		const originalColumns = process.stdout.columns;
+		Object.defineProperty(process.stdout, 'columns', {
+			value: 80,
+			configurable: true,
+		});
+
+		try {
+			const longDescription =
+				'This is a very long description that will not fit on one terminal row no matter how it is padded or truncated here';
+
+			const {stdin, lastFrame, unmount} = render(
+				<TestWrapper>
+					<UserInput
+						forceFocus={true}
+						customCommands={[
+							{name: 'long-desc', description: longDescription},
+						]}
+					/>
+				</TestWrapper>,
+			);
+
+			stdin.write('/long-desc');
+			await waitForFrame(lastFrame, /Available commands:/);
+
+			const output = stripAnsi(lastFrame()!);
+			const rowLine = output
+				.split('\n')
+				.find(line => line.includes('/long-desc'))!;
+
+			t.truthy(rowLine);
+			// Truncated (ellipsis), never the full untruncated description, and
+			// never wrapped onto a second physical row.
+			t.false(rowLine.includes(longDescription));
+			t.true(rowLine.length <= 80);
+			unmount();
+		} finally {
+			Object.defineProperty(process.stdout, 'columns', {
+				value: originalColumns,
+				configurable: true,
+			});
+		}
+	},
+);
+
+test.serial(
+	'completion menu hides descriptions on a narrow terminal',
+	async t => {
+		const originalColumns = process.stdout.columns;
+		// narrow: useResponsiveTerminal's isNarrow signal
+		Object.defineProperty(process.stdout, 'columns', {
+			value: 50,
+			configurable: true,
+		});
+
+		try {
+			const {stdin, lastFrame, unmount} = render(
+				<TestWrapper>
+					<UserInput
+						forceFocus={true}
+						customCommands={[
+							{
+								name: 'narrow-cmd',
+								description: 'Should not appear when narrow',
+							},
+						]}
+					/>
+				</TestWrapper>,
+			);
+
+			stdin.write('/narrow-cmd');
+			await waitForFrame(lastFrame, /Available commands:/);
+
+			const output = stripAnsi(lastFrame()!);
+			t.regex(output, /\/narrow-cmd/);
+			t.notRegex(output, /Should not appear when narrow/);
+			unmount();
+		} finally {
+			Object.defineProperty(process.stdout, 'columns', {
+				value: originalColumns,
+				configurable: true,
+			});
+		}
+	},
+);
+
+// Themes with colors.promptChar set render the input box with a rounded
+// border + paddingX inside a box already shrunk by marginX(2) - a narrower
+// interior than the raw terminal columns. Sizing the completion row budget
+// off the raw columns (rather than that box's actual interior) let long,
+// realistic descriptions overflow the box and wrap onto a second physical
+// line, destroying the two-column name/description layout.
+const PromptCharThemeProvider = ({children}: {children: React.ReactNode}) => {
+	const mockTheme = {
+		currentTheme: 'tokyo-night' as const,
+		colors: {...themes['tokyo-night'].colors, promptChar: '>'},
+		setCurrentTheme: () => {},
+	};
+
+	return (
+		<ThemeContext.Provider value={mockTheme}>
+			<UIStateProvider>{children}</UIStateProvider>
+		</ThemeContext.Provider>
+	);
+};
+
+test('promptChar input renders current model as a bottom-right badge', t => {
+	const {lastFrame, unmount} = render(
+		<PromptCharThemeProvider>
+			<UserInput currentModel="mimo-v2.5" />
+		</PromptCharThemeProvider>,
+	);
+
+	const output = stripAnsi(lastFrame() ?? '');
+	t.regex(output, /mimo-v2\.5/);
+	t.regex(output, /normal mode on/);
+	t.true(output.indexOf('mimo-v2.5') < output.indexOf('normal mode on'));
+	unmount();
+});
+
+test.serial(
+	'completion rows with realistic long descriptions do not wrap under a promptChar theme',
+	async t => {
+		const originalColumns = process.stdout.columns;
+		// ~110-column-class terminal (the reported defect), narrow enough that
+		// ink-testing-library's fixed 100-column virtual canvas isn't itself the
+		// limiting factor - only the input box's own border/padding/margin math
+		// can be responsible for any wrap seen here.
+		Object.defineProperty(process.stdout, 'columns', {
+			value: 96,
+			configurable: true,
+		});
+
+		try {
+			// Real registry-length descriptions (mirrors /agents and /codex-login).
+			const longCommands = [
+				{
+					name: 'agents',
+					description:
+						'List subagents. /agents show <name> for details, /agents copy <name> to customize',
+				},
+				{
+					name: 'codex-login',
+					description:
+						'Log in to ChatGPT/Codex (device flow). Saves credentials for the "ChatGPT" provider',
+				},
+			];
+
+			const {stdin, lastFrame, unmount} = render(
+				<PromptCharThemeProvider>
+					<UserInput forceFocus={true} customCommands={longCommands} />
+				</PromptCharThemeProvider>,
+			);
+
+			stdin.write('/');
+			await waitForFrame(lastFrame, /Available commands:/);
+
+			const lines = stripAnsi(lastFrame()!).split('\n');
+			const headerIdx = lines.findIndex(line =>
+				line.includes('Available commands:'),
+			);
+			const agentsIdx = lines.findIndex(line => line.includes('/agents'));
+			const codexIdx = lines.findIndex(line =>
+				line.includes('/codex-login'),
+			);
+
+			t.true(headerIdx > -1, 'header line should be present');
+			t.true(agentsIdx > -1, '/agents row should be present');
+			t.true(codexIdx > -1, '/codex-login row should be present');
+
+			// Exactly header + one line per completion - no extra lines inserted
+			// by Ink soft-wrapping an overlong row onto the next physical line.
+			t.is(
+				agentsIdx,
+				headerIdx + 1,
+				'no wrapped line between the header and the /agents row',
+			);
+			t.is(
+				codexIdx,
+				agentsIdx + 1,
+				'no wrapped line between the /agents row and the /codex-login row',
+			);
+
+			// No rendered line may exceed the virtual terminal's actual width
+			// (ink-testing-library's fixed 100-column canvas).
+			for (const line of lines) {
+				t.true(
+					line.length <= 100,
+					`line exceeds the rendered frame width: "${line}"`,
+				);
+			}
+
+			unmount();
+		} finally {
+			Object.defineProperty(process.stdout, 'columns', {
+				value: originalColumns,
+				configurable: true,
+			});
+		}
+	},
+);

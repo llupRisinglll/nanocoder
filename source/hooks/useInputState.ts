@@ -98,8 +98,11 @@ export function useInputState() {
 				const expectedLength = currentState.displayValue.length;
 				const addedChunk = newInput.slice(expectedLength);
 
+				// Real terminal paste chunks arrive many chars at a time — a single
+				// added char is the user typing, not a chunk continuation, and must
+				// not be merged into the paste content
 				if (
-					addedChunk.length > 0 &&
+					addedChunk.length > 1 &&
 					placeholder.type === PlaceholderType.PASTE
 				) {
 					// Merge the new chunk into the existing paste placeholder

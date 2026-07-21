@@ -116,6 +116,46 @@ test('UserMessage renders multi-line message', t => {
 	t.regex(output!, /Line 3/);
 });
 
+test('UserMessage collapses expanded custom command prompts by default', t => {
+	const message = `[Executing custom command: /worktree purpose: test worktree]
+
+Create a git worktree for parallel feature work.
+
+## 1. Determine the worktree name
+
+This should not be echoed into the transcript.`;
+
+	const {lastFrame} = render(
+		<MockThemeProvider>
+			<UserMessage message={message} />
+		</MockThemeProvider>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /\/worktree purpose: test worktree/);
+	t.notRegex(output!, /Determine the worktree name/);
+	t.notRegex(output!, /This should not be echoed/);
+});
+
+test('UserMessage keeps custom command token accounting on full prompt', t => {
+	const fullPrompt = `[Executing custom command: /worktree]
+
+${'expanded command body '.repeat(200)}`;
+
+	const {lastFrame} = render(
+		<MockThemeProvider>
+			<UserMessage message={fullPrompt} tokenContent={fullPrompt} />
+		</MockThemeProvider>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /\/worktree/);
+	t.notRegex(output!, /expanded command body/);
+	t.regex(output!, /~[1-9][0-9,]* tokens/);
+});
+
 test('UserMessage renders multi-line message with file placeholders', t => {
 	const {lastFrame} = render(
 		<MockThemeProvider>

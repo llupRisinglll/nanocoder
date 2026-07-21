@@ -21,8 +21,8 @@ let activeEditorDebounce: NodeJS.Timeout | null = null;
 let lastActiveEditorPayload: string | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
-	outputChannel = vscode.window.createOutputChannel('Nanocoder');
-	outputChannel.appendLine('Nanocoder extension activating...');
+	outputChannel = vscode.window.createOutputChannel('Omnicode');
+	outputChannel.appendLine('Omnicode extension activating...');
 
 	// Initialize components
 	wsClient = new WebSocketClient(outputChannel);
@@ -71,7 +71,7 @@ export function activate(context: vscode.ExtensionContext) {
 		{dispose: () => diffManager.dispose()},
 	);
 
-	outputChannel.appendLine('Nanocoder extension activated');
+	outputChannel.appendLine('Omnicode extension activated');
 }
 
 export function deactivate() {
@@ -81,7 +81,7 @@ export function deactivate() {
 
 // Connection management
 async function connect(): Promise<void> {
-	const config = vscode.workspace.getConfiguration('nanocoder');
+	const config = vscode.workspace.getConfiguration('omnicode');
 	const port = config.get<number>('serverPort', DEFAULT_PORT);
 
 	updateStatusBar(false, 'Connecting...');
@@ -92,11 +92,11 @@ async function connect(): Promise<void> {
 		updateStatusBar(true);
 		sendWorkspaceContext();
 		sendActiveEditor();
-		vscode.window.showInformationMessage('Connected to Nanocoder CLI');
+		vscode.window.showInformationMessage('Connected to Omnicode CLI');
 	} else {
 		updateStatusBar(false);
 		const action = await vscode.window.showWarningMessage(
-			'Could not connect to Nanocoder CLI. Is it running?',
+			'Could not connect to Omnicode CLI. Is it running?',
 			'Start CLI',
 			'Retry',
 		);
@@ -111,7 +111,7 @@ async function connect(): Promise<void> {
 function disconnect(): void {
 	wsClient.disconnect();
 	updateStatusBar(false);
-	vscode.window.showInformationMessage('Disconnected from Nanocoder CLI');
+	vscode.window.showInformationMessage('Disconnected from Omnicode CLI');
 }
 
 // Status bar updates
@@ -119,13 +119,13 @@ function updateStatusBar(connected: boolean, text?: string): void {
 	if (text) {
 		statusBarItem.text = `$(sync~spin) ${text}`;
 	} else if (connected) {
-		statusBarItem.text = '$(check) Nanocoder';
-		statusBarItem.tooltip = 'Connected to Nanocoder CLI';
-		statusBarItem.command = 'nanocoder.disconnect';
+		statusBarItem.text = '$(check) Omnicode';
+		statusBarItem.tooltip = 'Connected to Omnicode CLI';
+		statusBarItem.command = 'omnicode.disconnect';
 	} else {
-		statusBarItem.text = '$(plug) Nanocoder';
-		statusBarItem.tooltip = 'Click to connect to Nanocoder CLI';
-		statusBarItem.command = 'nanocoder.connect';
+		statusBarItem.text = '$(plug) Omnicode';
+		statusBarItem.tooltip = 'Click to connect to Omnicode CLI';
+		statusBarItem.command = 'omnicode.connect';
 	}
 }
 
@@ -158,7 +158,7 @@ function handleServerMessage(message: ServerMessage): void {
 }
 
 function handleFileChange(message: FileChangeMessage): void {
-	const config = vscode.workspace.getConfiguration('nanocoder');
+	const config = vscode.workspace.getConfiguration('omnicode');
 	const showDiffPreview = config.get<boolean>('showDiffPreview', true);
 
 	// Add to pending changes
@@ -241,13 +241,13 @@ function startCli(): void {
 	const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 	const cwd = workspaceFolder?.uri.fsPath || process.cwd();
 
-	// Create terminal and run nanocoder
+	// Create terminal and run omnicode
 	const terminal = vscode.window.createTerminal({
-		name: 'Nanocoder',
+		name: 'Omnicode',
 		cwd,
 	});
 
-	terminal.sendText('nanocoder --vscode');
+	terminal.sendText('omnicode --vscode');
 	terminal.show();
 
 	// Try to connect after a delay

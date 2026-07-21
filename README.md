@@ -1,40 +1,88 @@
-# Nanocoder
+# Omnicode
 
-[简体中文](README.zh-CN.md)
-[繁體中文](README.zh-TW.md)
+**An alternative to Claude Code and opencode: a fork of Nanocoder that ships its unreleased features first.**
 
-An open coding agent for your terminal, built by a community collective rather than a company. Bring your own model, keep your code on your machine, and owe nothing to anyone.
+[简体中文](README.zh-CN.md) (not yet updated to the new structure)
+[繁體中文](README.zh-TW.md) (not yet updated to the new structure)
 
-Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community. Nanocoder runs agentic coding on the model of your choice: local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. You decide which provider runs your code and where your data goes. No closed-source features and no paid tiers gating the useful parts: **privacy-respecting**, **local-first**, and **open for all**.
+Omnicode is a fork of [Nanocoder](https://github.com/Nano-Collective/nanocoder) that seeks to aggressively pull its unreleased work forward in order to:
 
-![Example](./.github/assets/example-preview.gif)
+- Give developers building agentic CLI workflows a real alternative to Claude Code and opencode, without locking them to one model provider
+- Put Nanocoder's experimental and unreleased changes (the `rc/*` branches) in users' hands before they land upstream
+- Keep everything open — no telemetry, no proxy hacks propping up closed binaries
+- Contribute finished work back upstream once it has proven itself here, rather than diverging permanently
 
----
-![Build Status](https://github.com/Nano-Collective/nanocoder/raw/main/badges/build.svg)
-![Coverage](https://github.com/Nano-Collective/nanocoder/raw/main/badges/coverage.svg)
-![Version](https://github.com/Nano-Collective/nanocoder/raw/main/badges/npm-version.svg)
-![NPM Downloads](https://github.com/Nano-Collective/nanocoder/raw/main/badges/npm-downloads-monthly.svg)
-![NPM License](https://github.com/Nano-Collective/nanocoder/raw/main/badges/npm-license.svg)
-![Repo Size](https://github.com/Nano-Collective/nanocoder/raw/main/badges/repo-size.svg)
-![Stars](https://github.com/Nano-Collective/nanocoder/raw/main/badges/stars.svg)
-![Forks](https://github.com/Nano-Collective/nanocoder/raw/main/badges/forks.svg)
+Omnicode exists because switching between CLI coding tools got tiring: one tool locks you to a provider, another has no flexibility. Rather than fight closed agentic tools with env hacks and proxies, this fork shapes Nanocoder around the features actually needed, and sends them upstream when they're ready. Bring your own model, keep your code on your machine: run agentic coding on the model of your choice — local models via Ollama, or any OpenAI-compatible API such as OpenRouter, Anthropic, and Google. Built by the [Nano Collective](https://nanocollective.org), a community collective building AI tooling not for profit, but for the community.
 
-<a href="https://www.star-history.com/#Nano-Collective/nanocoder&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Nano-Collective/nanocoder&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Nano-Collective/nanocoder&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Nano-Collective/nanocoder&type=Date" />
- </picture>
-</a>
+## Relationship to Nanocoder
 
-## Quick Start
+Omnicode is a fork of [Nano-Collective/nanocoder](https://github.com/Nano-Collective/nanocoder) — not a rewrite, not a clone. It contains everything in Nanocoder, plus changes that haven't been released upstream yet.
+
+New work lands on `rc/*` branches here first, then gets proposed back to the original repo once it's finished and proven: multiline cursor navigation, dual TUI screen modes, and session resume/continue flags are already merged upstream. Omnicode is where Nanocoder's next release lives before it's a release — the same relationship Neovim has to Vim.
+
+## What Omnicode has that Nanocoder doesn't (yet)
+
+| Feature | Upstream status |
+|---|---|
+| Provider config robustness — save no longer wipes providers; startup falls back to a working provider instead of freezing | Incubating on `rc/provider-robustness` |
+| Omnicode theme + chat layout overhaul (rounded input/message boxes, merged tool-activity lines, truncated output previews) | Fork-exclusive: `fork/omnicode-theme` |
+| Statusline position control (`/statusline position top\|bottom`) | Incubating on `rc/statusline` |
+| Animated working/thinking indicators (`⚙ Working... (12s)`, `⚙ Thought (5s)`) | Incubating on `rc/indicators` |
+| Compact file diff display with inline word highlighting | Incubating on `rc/compact-diff` |
+| Optimized welcome header + conditional tips display | Incubating on `rc/welcome-header` |
+| `$ARGUMENTS` pass-through for commands without declared parameters | Incubating on `rc/arguments-passthrough` |
+| Atomic paste placeholders — cursor can't land inside `[Paste #N]`, backspace removes it whole, chat history shows the real pasted text | Incubating on `rc/paste-placeholders` |
+| Command menu descriptions — completion list shows each command's description, grey unselected rows | Incubating on `rc/command-menu-descriptions` |
+| Tabbed settings dialog — categorized tabs, fuzzy search field, title-shape-aware tab bar | Incubating on `rc/settings-tabs` |
+| Anthropic prompt caching — stable/volatile system-prompt split, breakpoint budget on tools + system + messages (≈90% input-token cost cut on cached turns) | Incubating on `rc/provider-network-prompt-arch` |
+| Per-provider tool naming — Claude Code names for Anthropic, Codex names for OpenAI, snake_case for local models; aliases accepted bidirectionally | Incubating on `rc/provider-network-prompt-arch` |
+| Per-model identity prompts, MCP server instructions in system prompt, skills-in-prompt listing + `skill` tool | Incubating on `rc/provider-network-prompt-arch` |
+| Model fallback retry, session-affinity headers, tool-call self-repair, per-turn tool filtering, image detail/file-part/size-guard hardening | Incubating on `rc/provider-network-prompt-arch` |
+
+#### Previews
+
+<details>
+<summary>Task list display (from the table above)</summary>
+
+The task list now renders in a styled box with the user's preferred title shape, theme colors, and a progress counter:
+
+![Task List Display](docs/task-list-display.png)
+
+</details>
+
+## Getting started
+
+Omnicode isn't published to npm — this is the pre-release lane, so setup is from source:
 
 ```bash
-npm install -g @nanocollective/nanocoder
-nanocoder
+git clone https://github.com/llupRisinglll/omnicode
+cd omnicode
 ```
 
-Also available via [Homebrew](docs/getting-started/installation.md#homebrew-macoslinux) and [Nix Flakes](docs/getting-started/installation.md#nix-flakes).
+Or let the install script do the rest: `./install.sh` (detects your OS, checks prerequisites, builds, and puts `omnicode` on your PATH).
+
+Otherwise, continue manually:
+
+```bash
+pnpm install
+pnpm run build
+```
+
+`pnpm run build` compiles to `dist/cli.js` and marks it executable (bin name `omnicode`). Then make it available on your `PATH` — either link the package:
+
+```bash
+pnpm link --global   # or: npm link
+```
+
+or symlink the binary directly:
+
+```bash
+mkdir -p ~/.local/bin
+ln -s "$(pwd)/dist/cli.js" ~/.local/bin/omnicode
+# already executable after `pnpm run build`; if not, run: chmod +x dist/cli.js
+```
+
+Either way, running `omnicode` should now start the CLI.
 
 ### CLI Flags
 
@@ -42,39 +90,35 @@ Specify provider, model, and starting mode directly:
 
 ```bash
 # Non-interactive mode with specific provider/model
-nanocoder --provider openrouter --model google/gemini-3.1-flash run "analyze src/app.ts"
+omnicode --provider openrouter --model google/gemini-3.1-flash run "analyze src/app.ts"
 
 # Interactive mode starting with specific provider
-nanocoder --provider ollama --model llama3.1
+omnicode --provider ollama --model llama3.1
 
 # Flags can appear before or after 'run' command
-nanocoder run --provider openrouter "refactor database module"
+omnicode run --provider openrouter "refactor database module"
 
 # Boot directly into a development mode (normal, auto-accept, yolo, plan)
-nanocoder --mode yolo
-nanocoder --mode plan run "audit the auth module"
+omnicode --mode yolo
+omnicode --mode plan run "audit the auth module"
+
+# Fullscreen mode with in-app scrolling instead of the inline default
+omnicode --alt-screen
 ```
 
 ## Documentation
 
-Full documentation is available online at **[docs.nanocollective.org](https://docs.nanocollective.org/nanocoder/docs)** or in the [docs/](docs/) folder:
-
-- **[Getting Started](docs/getting-started/index.md)** - Installation, setup, and first steps
-- **[Configuration](docs/configuration/index.md)** - AI providers, MCP servers, preferences, logging, timeouts
-- **[Features](docs/features/index.md)** - Skills (commands, subagents, tools, event triggers), the per-project daemon, checkpointing, development modes, task management, and more
-- **[Commands Reference](docs/features/commands.md)** - Complete list of built-in slash commands
-- **[Keyboard Shortcuts](docs/features/keyboard-shortcuts.md)** - Full shortcut reference
-- **[Community](docs/community.md)** - Contributing, Discord, and how to help
+Further reference lives in the [docs/](docs/) folder, plus upstream's doc site at [docs.nanocollective.org](https://docs.nanocollective.org/nanocoder/docs).
 
 ## Why a collective
 
-Nanocoder is built by the Nano Collective rather than a company, and that shapes the tool itself. There are no paid tiers, no telemetry quietly shipping your prompts somewhere, and no roadmap steered by what monetises best — the people building it are the people using it. Building in the open as a collective means the harness stays multi-provider on principle: you are never locked to one vendor's model, and the conventions, tests, and release standards are shared across every Nano Collective project so the work stays legible and contributable.
+Omnicode is built by the Nano Collective rather than a company, and that shapes the tool itself. There are no paid tiers, no telemetry quietly shipping your prompts somewhere, and no roadmap steered by what monetises best — the people building it are the people using it. Building in the open as a collective means the harness stays multi-provider on principle: you are never locked to one vendor's model, and the conventions, tests, and release standards are shared across every Nano Collective project so the work stays legible and contributable.
 
 It is also bigger than one tool. The collective is assembling an open ecosystem of AI tooling — see the [other projects](https://nanocollective.org) — and contributors who show up now help shape what that becomes.
 
 ## Sponsors
 
-Nanocoder is built not for profit, but for the community, and that work is funded by sponsors. [Become one](https://nanocollective.org/sponsor).
+Omnicode is built not for profit, but for the community, and that work is funded by sponsors. [Become one](https://nanocollective.org/sponsor).
 
 ### [Atlas Cloud](https://www.atlascloud.ai/console/coding-plan)
 

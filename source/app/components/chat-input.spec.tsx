@@ -119,7 +119,7 @@ test('ChatInput keeps UserInput visible while a tool is executing', t => {
 	const {lastFrame, unmount} = renderWithTheme(<ChatInput {...props} />);
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /hat would you like me to help with\?/);
+	t.regex(output!, /Working\./);
 	t.regex(output!, /Press Esc to cancel/);
 	unmount();
 });
@@ -187,28 +187,15 @@ test('ChatInput does not show question prompt when not in question mode', t => {
 	unmount();
 });
 
-test('ChatInput shows live compact counts when compactToolCounts provided', t => {
+test('ChatInput does not render compact counts in the input footer', t => {
 	const props = createDefaultProps({
-		compactToolCounts: {read_file: 5, search_file_contents: 2},
+		liveTaskList: null,
 	});
 
 	const {lastFrame, unmount} = renderWithTheme(<ChatInput {...props} />);
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /Read 5 files/);
-	t.regex(output!, /Searched for 2 patterns/);
-	unmount();
-});
-
-test('ChatInput does not show compact counts when null', t => {
-	const props = createDefaultProps({
-		compactToolCounts: null,
-	});
-
-	const {lastFrame, unmount} = renderWithTheme(<ChatInput {...props} />);
-	const output = lastFrame();
-	t.truthy(output);
-	t.notRegex(output!, /Read.*files/);
+	t.notRegex(output!, /Running Read/);
 	unmount();
 });
 

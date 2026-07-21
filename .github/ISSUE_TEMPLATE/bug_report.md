@@ -14,7 +14,7 @@ Brief description of the bug
 
 - **OS**: (e.g., macOS 14.0, Ubuntu 22.04, Windows 11)
 - **Node version**: (run `node --version`)
-- **Nanocoder version**: (run `nanocoder --version`)
+- **Omnicode version**: (run `omnicode --version`)
 - **Provider**: (e.g., Ollama, OpenRouter, OpenAI-compatible API)
 - **Model**: (e.g., llama3.2, claude-3.5-sonnet)
 
@@ -40,4 +40,4 @@ If applicable, add logs or screenshots to help explain the problem
 
 - [ ] I have searched existing issues to ensure this is not a duplicate
 - [ ] I can reproduce this issue consistently
-- [ ] This issue occurs with the latest version of nanocoder
+- [ ] This issue occurs with the latest version of omnicode

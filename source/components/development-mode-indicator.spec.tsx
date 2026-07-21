@@ -202,7 +202,7 @@ test('DevelopmentModeIndicator shows context percentage when provided', t => {
 	const output = lastFrame();
 	// Marker is optional here (no source given → estimated); see dedicated
 	// API-vs-estimate marker tests below.
-	t.regex(output!, /ctx: ~?42%/);
+	t.regex(output!, /ctx: ~?▰▰▰▰▱▱▱▱▱▱ 42%/);
 });
 
 test('DevelopmentModeIndicator hides context percentage when null', t => {
@@ -225,8 +225,8 @@ test('DevelopmentModeIndicator shows API-reported context without the ~ marker',
 	);
 
 	const output = lastFrame();
-	t.regex(output!, /ctx: 42%/);
-	t.notRegex(output!, /ctx: ~42%/);
+	t.regex(output!, /ctx: ▰▰▰▰▱▱▱▱▱▱ 42%/);
+	t.notRegex(output!, /ctx: ~▰/);
 });
 
 test('DevelopmentModeIndicator marks estimated context with a leading ~', t => {
@@ -240,7 +240,7 @@ test('DevelopmentModeIndicator marks estimated context with a leading ~', t => {
 	);
 
 	const output = lastFrame();
-	t.regex(output!, /ctx: ~42%/);
+	t.regex(output!, /ctx: ~▰▰▰▰▱▱▱▱▱▱ 42%/);
 });
 
 test('DevelopmentModeIndicator defaults to the estimate marker when source is omitted', t => {
@@ -249,7 +249,7 @@ test('DevelopmentModeIndicator defaults to the estimate marker when source is om
 	);
 
 	const output = lastFrame();
-	t.regex(output!, /ctx: ~42%/);
+	t.regex(output!, /ctx: ~▰▰▰▰▱▱▱▱▱▱ 42%/);
 });
 
 test('DevelopmentModeIndicator normal mode uses correct label', t => {
@@ -353,7 +353,28 @@ test('DevelopmentModeIndicator has correct structure', t => {
 	const output = lastFrame();
 	// Should have the mode label and context percentage
 	t.regex(output!, /normal mode on/);
-	t.regex(output!, /ctx: ~?25%/);
+	t.regex(output!, /ctx: ~?▰▰▰▱▱▱▱▱▱▱ 25%/);
+});
+
+test('DevelopmentModeIndicator renders workspace status rows without duplicating model', t => {
+	const {lastFrame} = render(
+		<DevelopmentModeIndicator
+			developmentMode="yolo"
+			colors={mockColors}
+			contextPercentUsed={6}
+			currentModel="mimo-v2.5"
+			statusInfo={{
+				user: 'engr_luis',
+				directory: 'Hilinga',
+				git: {branch: 'main', dirty: true},
+			}}
+		/>,
+	);
+
+	const output = lastFrame()!;
+	t.regex(output, /yolo mode on · ctx: ~▰▱▱▱▱▱▱▱▱▱ 6%/);
+	t.notRegex(output, /mimo-v2\.5/);
+	t.regex(output, /\[engr_luis Hilinga\]\sgit:\(main\) x/);
 });
 
 test('DevelopmentModeIndicator component can be unmounted', t => {

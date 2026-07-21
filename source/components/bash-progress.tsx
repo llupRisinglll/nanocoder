@@ -1,6 +1,7 @@
 import {Box, Text} from 'ink';
 import {useEffect, useState} from 'react';
 
+import {ToolCallHeader} from '@/components/simple-tool-formatter';
 import ToolMessage from '@/components/tool-message';
 import {TRUNCATION_OUTPUT_LIMIT} from '@/constants';
 import {useTheme} from '@/hooks/useTheme';
@@ -88,11 +89,11 @@ export default function BashProgress({
 
 	const messageContent = (
 		<Box flexDirection="column">
-			<Text color={colors.tool}>⚒ execute_bash</Text>
+			<ToolCallHeader toolName="execute_bash" detail={command} />
 
 			<Box flexDirection="column">
 				<Text color={colors.secondary}>Command:</Text>
-				<Text wrap="wrap" color={colors.primary}>
+				<Text wrap="wrap" color={colors.text}>
 					{command}
 				</Text>
 			</Box>

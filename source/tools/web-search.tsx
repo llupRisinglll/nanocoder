@@ -1,6 +1,7 @@
 import {Box, Text} from 'ink';
 import React from 'react';
 
+import {ToolCallHeader} from '@/components/simple-tool-formatter';
 import {getBraveSearchApiKey} from '@/config/nanocoder-tools-config';
 import {
 	DEFAULT_WEB_SEARCH_RESULTS,
@@ -148,7 +149,7 @@ function WebSearchFormatterComponent({
 
 	return (
 		<Box flexDirection="column" marginBottom={1} width={boxWidth}>
-			<Text color={colors.tool}>⚒ web_search</Text>
+			<ToolCallHeader toolName="web_search" detail={query} />
 			<Box>
 				<Text color={colors.secondary}>Query: </Text>
 				<Box marginLeft={1} flexShrink={1}>

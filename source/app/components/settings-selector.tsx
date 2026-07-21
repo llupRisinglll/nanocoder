@@ -7,12 +7,17 @@ import {StyledSelectInput} from '@/components/ui/styled-select-input';
 import type {TitleShape} from '@/components/ui/styled-title';
 import {TitledBoxWithPreferences} from '@/components/ui/titled-box';
 import {
+	getCompactDiffMaxLines,
 	getCompactToolDisplay,
 	getNanocoderShape,
 	getNotificationsPreference,
 	getPasteThreshold,
 	getPrivacyPreference,
 	getReasoningExpanded,
+	getShowWorkingIndicator,
+	loadPreferences,
+	savePreferences,
+	updateCompactDiffMaxLines,
 	updateCompactToolDisplay,
 	updateNanocoderShape,
 	updateNotificationsPreference,
@@ -20,18 +25,25 @@ import {
 	updatePrivacyPreference,
 	updateReasoningExpanded,
 	updateSelectedTheme,
+	updateShowWorkingIndicator,
 } from '@/config/preferences';
-import {getThemeColors, themes} from '@/config/themes';
+import {getTextboxBackground, getThemeColors, themes} from '@/config/themes';
 import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import {useTitleShape} from '@/hooks/useTitleShape';
 import type {NotificationsConfig} from '@/types/config';
+import type {StatusLineConfig} from '@/types/statusline';
 import type {NanocoderShape, ThemePreset} from '@/types/ui';
 import {setNotificationsConfig} from '@/utils/notifications';
 import {DEFAULT_SINGLE_LINE_PASTE_THRESHOLD} from '@/utils/paste-utils';
 
-type SettingsStep =
-	| 'main'
+/**
+ * The set of "managed" settings panels: preserved full-featured sub-UIs that
+ * the tabbed Settings dialog (`settings-tabs.tsx`) opens in place of the old
+ * top-level menu. `main`/`done` no longer exist as panel states — the tab
+ * dialog's own list/header modes replace them.
+ */
+export type ManagedSettingsPanel =
 	| 'theme'
 	| 'title-shape'
 	| 'nanocoder-shape'
@@ -39,143 +51,10 @@ type SettingsStep =
 	| 'notifications'
 	| 'display-settings'
 	| 'privacy'
-	| 'done';
+	| 'status-line';
 
-interface SettingsSelectorProps {
+export interface SettingsSelectorProps {
 	onCancel: () => void;
-}
-
-interface MainMenuItem {
-	label: string;
-	value: SettingsStep;
-	description: string;
-}
-
-// Main settings menu
-function SettingsMainMenu({
-	onSelect,
-	onCancel,
-}: {
-	onSelect: (step: SettingsStep) => void;
-	onCancel: () => void;
-}) {
-	const {colors} = useTheme();
-	const {boxWidth, isNarrow} = useResponsiveTerminal();
-
-	const items: MainMenuItem[] = [
-		{
-			label: 'Theme',
-			value: 'theme',
-			description: 'Change color scheme',
-		},
-		{
-			label: 'Title Shape',
-			value: 'title-shape',
-			description: 'Customize box title styles',
-		},
-		{
-			label: 'Nanocoder Shape',
-			value: 'nanocoder-shape',
-			description: 'Change welcome banner font',
-		},
-		{
-			label: 'Paste Threshold',
-			value: 'paste-threshold',
-			description: 'Set single-line paste character limit',
-		},
-		{
-			label: 'Notifications',
-			value: 'notifications',
-			description: 'Desktop notification preferences',
-		},
-		{
-			label: 'Tool Results and Thinking',
-			value: 'display-settings',
-			description: 'Set defaults for model thoughts and tool results',
-		},
-		{
-			label: 'Privacy',
-			value: 'privacy',
-			description: 'Manage prompt scrubbing and sensitive data',
-		},
-		{
-			label: 'Done',
-			value: 'done',
-			description: 'Exit settings',
-		},
-	];
-
-	useInput((_input, key) => {
-		if (key.escape) {
-			onCancel();
-		}
-	});
-
-	// Narrow terminal: simplified layout (matches Status component pattern)
-	if (isNarrow) {
-		return (
-			<Box
-				flexDirection="column"
-				marginBottom={1}
-				borderStyle="round"
-				borderColor={colors.primary}
-				paddingY={1}
-				paddingX={2}
-				width="100%"
-			>
-				<Text color={colors.primary} bold>
-					Settings
-				</Text>
-				<Text color={colors.text}> </Text>
-				<StyledSelectInput
-					items={items.map(item => ({
-						label: item.label,
-						value: item.value,
-					}))}
-					onSelect={item => {
-						if (item.value === 'done') {
-							onCancel();
-						} else {
-							onSelect(item.value as SettingsStep);
-						}
-					}}
-				/>
-				<Box marginBottom={1}></Box>
-				<Text color={colors.secondary}>Enter/Esc</Text>
-			</Box>
-		);
-	}
-
-	return (
-		<TitledBoxWithPreferences
-			title="Settings"
-			width={boxWidth}
-			borderColor={colors.primary}
-			paddingX={1}
-			paddingY={1}
-			flexDirection="column"
-		>
-			<Box marginBottom={1}>
-				<Text color={colors.secondary}>Select a setting to configure:</Text>
-			</Box>
-			<StyledSelectInput
-				items={items.map(item => ({
-					label: `${item.label} - ${item.description}`,
-					value: item.value,
-				}))}
-				onSelect={item => {
-					if (item.value === 'done') {
-						onCancel();
-					} else {
-						onSelect(item.value as SettingsStep);
-					}
-				}}
-			/>
-			<Box marginTop={1}>
-				<Text color={colors.secondary}>Enter to select, Esc to exit</Text>
-			</Box>
-		</TitledBoxWithPreferences>
-	);
 }
 
 function ThemePreviewMessage({
@@ -185,7 +64,7 @@ function ThemePreviewMessage({
 	compact = false,
 }: {
 	accentColor: string;
-	baseColor: string;
+	baseColor: string | undefined;
 	children: ReactNode;
 	compact?: boolean;
 }) {
@@ -224,7 +103,7 @@ function ThemeMiniPreview({
 				</Box>
 				<ThemePreviewMessage
 					accentColor={colors.primary}
-					baseColor={colors.base}
+					baseColor={getTextboxBackground(colors)}
 					compact={compact}
 				>
 					<Text color={colors.text}>
@@ -242,7 +121,7 @@ function ThemeMiniPreview({
 
 				<ThemePreviewMessage
 					accentColor={colors.secondary}
-					baseColor={colors.base}
+					baseColor={getTextboxBackground(colors)}
 					compact={compact}
 				>
 					<Text color={colors.text}>
@@ -290,7 +169,7 @@ function ThemeMiniPreview({
 }
 
 // Theme settings panel
-function SettingsThemePanel({
+export function SettingsThemePanel({
 	onBack,
 	onCancel,
 }: {
@@ -389,7 +268,7 @@ function SettingsThemePanel({
 }
 
 // Title Shape settings panel
-function SettingsTitleShapePanel({
+export function SettingsTitleShapePanel({
 	onBack,
 	onCancel,
 }: {
@@ -561,7 +440,7 @@ function SettingsTitleShapePanel({
 }
 
 // Nanocoder Shape settings panel
-function SettingsNanocoderShapePanel({
+export function SettingsNanocoderShapePanel({
 	onBack,
 	onCancel,
 }: {
@@ -588,7 +467,8 @@ function SettingsNanocoderShapePanel({
 
 	const shapeOptions: {label: string; value: NanocoderShape}[] = useMemo(
 		() => [
-			{label: 'Tiny (default)', value: 'tiny'},
+			{label: 'Fork (default)', value: 'fork'},
+			{label: 'Tiny', value: 'tiny'},
 			{label: 'Block', value: 'block'},
 			{label: 'Simple', value: 'simple'},
 			{label: 'Simple Block', value: 'simpleBlock'},
@@ -626,9 +506,20 @@ function SettingsNanocoderShapePanel({
 	if (isNarrow) {
 		return (
 			<>
-				<Gradient colors={[colors.primary, colors.tool]}>
-					<BigText text={displayText} font={previewShape} />
-				</Gradient>
+				{previewShape === 'fork' ? (
+					<Box marginBottom={1}>
+						<Gradient colors={[colors.primary, colors.tool]}>
+							<Text>
+								▄█▀█▄ █▄░▄█ █▄░█ █ █▀▀ █▀█ █▀▄ █▀▀{'\n'}
+								▀█▄█▀ █░▀░█ █░▀█ █ █▄▄ █▄█ █▄▀ ██▄
+							</Text>
+						</Gradient>
+					</Box>
+				) : (
+					<Gradient colors={[colors.primary, colors.tool]}>
+						<BigText text={displayText} font={previewShape} />
+					</Gradient>
+				)}
 				<TitledBoxWithPreferences
 					title="Nanocoder Shape"
 					width="100%"
@@ -654,9 +545,18 @@ function SettingsNanocoderShapePanel({
 	return (
 		<>
 			<Box marginBottom={1}>
-				<Gradient colors={[colors.primary, colors.tool]}>
-					<BigText text={displayText} font={previewShape} />
-				</Gradient>
+				{previewShape === 'fork' ? (
+					<Gradient colors={[colors.primary, colors.tool]}>
+						<Text>
+							▄█▀█▄ █▄░▄█ █▄░█ █ █▀▀ █▀█ █▀▄ █▀▀{'\n'}
+							▀█▄█▀ █░▀░█ █░▀█ █ █▄▄ █▄█ █▄▀ ██▄
+						</Text>
+					</Gradient>
+				) : (
+					<Gradient colors={[colors.primary, colors.tool]}>
+						<BigText text={displayText} font={previewShape} />
+					</Gradient>
+				)}
 			</Box>
 
 			<TitledBoxWithPreferences
@@ -686,7 +586,7 @@ function SettingsNanocoderShapePanel({
 }
 
 // Paste Threshold settings panel
-function SettingsPasteThresholdPanel({
+export function SettingsPasteThresholdPanel({
 	onBack,
 	onCancel,
 }: {
@@ -784,7 +684,7 @@ function SettingsPasteThresholdPanel({
 }
 
 // Notifications settings panel
-function SettingsNotificationsPanel({
+export function SettingsNotificationsPanel({
 	onBack,
 	onCancel,
 }: {
@@ -893,7 +793,7 @@ function SettingsNotificationsPanel({
 }
 
 // Display settings panel
-function SettingsDisplayPanel({
+export function SettingsDisplayPanel({
 	onBack,
 	onCancel,
 }: {
@@ -905,6 +805,10 @@ function SettingsDisplayPanel({
 
 	const currentReasoningExpanded = getReasoningExpanded();
 	const currentCompactToolDisplay = getCompactToolDisplay();
+	const currentShowWorkingIndicator = getShowWorkingIndicator();
+	const [currentCompactDiffMaxLines, setCurrentCompactDiffMaxLines] = useState(
+		getCompactDiffMaxLines(),
+	);
 
 	useInput((_, key) => {
 		if (key.escape) {
@@ -915,10 +819,22 @@ function SettingsDisplayPanel({
 		}
 	});
 
-	type ToggleKey = 'reasoningExpanded' | 'compactToolDisplay';
+	// Cycled (not toggled) — Enter advances to the next preset. 0 means
+	// unlimited, shown last in the cycle.
+	const COMPACT_DIFF_MAX_LINES_OPTIONS = [10, 20, 30, 50, 100, 0];
+
+	type ToggleKey =
+		| 'reasoningExpanded'
+		| 'compactToolDisplay'
+		| 'showWorkingIndicator'
+		| 'compactDiffMaxLines';
 
 	const items: {label: string; value: ToggleKey}[] = useMemo(() => {
 		const isOn = (val: boolean | undefined) => (val ? 'ON' : 'OFF');
+		const diffMaxLinesLabel =
+			currentCompactDiffMaxLines === 0
+				? 'unlimited'
+				: String(currentCompactDiffMaxLines);
 		return [
 			{
 				label: `Show Thinking by default: ${isOn(currentReasoningExpanded)}`,
@@ -928,8 +844,21 @@ function SettingsDisplayPanel({
 				label: `Expand Tool Results by default: ${isOn(currentCompactToolDisplay)}`,
 				value: 'compactToolDisplay' as ToggleKey,
 			},
+			{
+				label: `Show Working Indicator: ${isOn(currentShowWorkingIndicator)}`,
+				value: 'showWorkingIndicator' as ToggleKey,
+			},
+			{
+				label: `Compact diff max lines: ${diffMaxLinesLabel}`,
+				value: 'compactDiffMaxLines' as ToggleKey,
+			},
 		];
-	}, [currentReasoningExpanded, currentCompactToolDisplay]);
+	}, [
+		currentReasoningExpanded,
+		currentCompactToolDisplay,
+		currentShowWorkingIndicator,
+		currentCompactDiffMaxLines,
+	]);
 
 	const handleSelect = (item: {label: string; value: ToggleKey}) => {
 		if (item.value === 'reasoningExpanded') {
@@ -938,6 +867,20 @@ function SettingsDisplayPanel({
 		} else if (item.value === 'compactToolDisplay') {
 			const newValue = !currentCompactToolDisplay;
 			updateCompactToolDisplay(newValue);
+		} else if (item.value === 'showWorkingIndicator') {
+			const newValue = !currentShowWorkingIndicator;
+			updateShowWorkingIndicator(newValue);
+		} else if (item.value === 'compactDiffMaxLines') {
+			const currentIndex = COMPACT_DIFF_MAX_LINES_OPTIONS.indexOf(
+				currentCompactDiffMaxLines,
+			);
+			const nextIndex =
+				(currentIndex === -1 ? 0 : currentIndex + 1) %
+				COMPACT_DIFF_MAX_LINES_OPTIONS.length;
+			const nextValue = COMPACT_DIFF_MAX_LINES_OPTIONS[nextIndex] ?? 20;
+			updateCompactDiffMaxLines(nextValue);
+			setCurrentCompactDiffMaxLines(nextValue);
+			return;
 		}
 		onBack();
 	};
@@ -971,67 +914,8 @@ function SettingsDisplayPanel({
 	);
 }
 
-// Main settings selector with step navigation
-export function SettingsSelector({onCancel}: SettingsSelectorProps) {
-	const [step, setStep] = useState<SettingsStep>('main');
-
-	switch (step) {
-		case 'main':
-			return <SettingsMainMenu onSelect={setStep} onCancel={onCancel} />;
-		case 'theme':
-			return (
-				<SettingsThemePanel
-					onBack={() => setStep('main')}
-					onCancel={onCancel}
-				/>
-			);
-		case 'title-shape':
-			return (
-				<SettingsTitleShapePanel
-					onBack={() => setStep('main')}
-					onCancel={onCancel}
-				/>
-			);
-		case 'nanocoder-shape':
-			return (
-				<SettingsNanocoderShapePanel
-					onBack={() => setStep('main')}
-					onCancel={onCancel}
-				/>
-			);
-		case 'paste-threshold':
-			return (
-				<SettingsPasteThresholdPanel
-					onBack={() => setStep('main')}
-					onCancel={onCancel}
-				/>
-			);
-		case 'notifications':
-			return (
-				<SettingsNotificationsPanel
-					onBack={() => setStep('main')}
-					onCancel={onCancel}
-				/>
-			);
-		case 'display-settings':
-			return (
-				<SettingsDisplayPanel
-					onBack={() => setStep('main')}
-					onCancel={onCancel}
-				/>
-			);
-		case 'privacy':
-			return (
-				<SettingsPrivacyPanel
-					onBack={() => setStep('main')}
-					onCancel={onCancel}
-				/>
-			);
-	}
-}
-
 // Privacy settings panel
-function SettingsPrivacyPanel({
+export function SettingsPrivacyPanel({
 	onBack,
 	onCancel,
 }: {
@@ -1092,6 +976,107 @@ function SettingsPrivacyPanel({
 					Prompt Scrubbing removes sensitive identifiers before sending prompts
 					to cloud providers. This improves privacy but does not guarantee
 					semantic anonymity.
+				</Text>
+			</Box>
+
+			<StyledSelectInput items={items} onSelect={handleSelect} />
+
+			<Box marginTop={1}>
+				<Text color={colors.secondary}>Enter/Esc</Text>
+			</Box>
+		</TitledBoxWithPreferences>
+	);
+}
+
+// Status Line settings panel
+export function SettingsStatusLinePanel({
+	onBack,
+	onCancel,
+}: {
+	onBack: () => void;
+	onCancel: () => void;
+}) {
+	const {boxWidth, isNarrow} = useResponsiveTerminal();
+	const {colors} = useTheme();
+
+	const preferences = loadPreferences();
+	const statusLine = preferences.statusLine ?? {enabled: false};
+	const [config, setConfig] = useState<StatusLineConfig>(statusLine);
+
+	useInput((_, key) => {
+		if (key.escape) {
+			onCancel();
+		}
+		if (key.shift && key.tab) {
+			onBack();
+		}
+	});
+
+	const updateConfig = (patch: Partial<StatusLineConfig>) => {
+		const next = {...config, ...patch};
+		setConfig(next);
+		preferences.statusLine = next;
+		savePreferences(preferences);
+	};
+
+	type ToggleKey = 'enabled';
+
+	const items: {label: string; value: ToggleKey | 'position' | 'command'}[] =
+		useMemo(() => {
+			const isOn = (val: boolean) => (val ? 'ON' : 'OFF');
+			return [
+				{
+					label: `Status Line: ${isOn(config.enabled)}`,
+					value: 'enabled',
+				},
+				{
+					label: `Position: ${config.position ?? 'bottom'}`,
+					value: 'position',
+				},
+				{
+					label: `Command: ${config.command ?? '(built-in)'}`,
+					value: 'command',
+				},
+			];
+		}, [config]);
+
+	const handleSelect = (item: {
+		label: string;
+		value: ToggleKey | 'position' | 'command';
+	}) => {
+		if (item.value === 'enabled') {
+			updateConfig({enabled: !config.enabled});
+		} else if (item.value === 'position') {
+			updateConfig({
+				position: config.position === 'top' ? 'bottom' : 'top',
+			});
+		}
+		// 'command' is read-only display here; use /statusline command to set
+	};
+
+	const title = isNarrow ? 'Status Line' : 'Status Line Settings';
+
+	return (
+		<TitledBoxWithPreferences
+			title={title}
+			width={isNarrow ? '100%' : boxWidth}
+			borderColor={colors.primary}
+			paddingX={2}
+			paddingY={1}
+			flexDirection="column"
+			marginBottom={1}
+		>
+			{!isNarrow && (
+				<Box marginBottom={1}>
+					<Text color={colors.secondary}>
+						Toggle settings with Enter. Shift+Tab to go back, Esc to exit
+					</Text>
+				</Box>
+			)}
+
+			<Box marginBottom={1}>
+				<Text color={colors.secondary}>
+					Use /statusline command &lt;cmd&gt; to set a custom command.
 				</Text>
 			</Box>
 

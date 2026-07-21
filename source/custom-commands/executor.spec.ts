@@ -78,12 +78,37 @@ test('execute includes args variable with all arguments', t => {
 	t.true(result.includes('hello world'));
 });
 
+test('execute provides args variable without declared parameters', t => {
+	const command = createTestCommand({
+		content: 'Purpose: {{args}}',
+		metadata: {},
+	});
+
+	const result = executor.execute(command, ['purpose:', 'testing', 'the', 'worktree']);
+	t.true(result.includes('Purpose: purpose: testing the worktree'));
+});
+
 test('execute wraps the prompt with the command name', t => {
 	const command = createTestCommand();
 
 	const result = executor.execute(command, []);
 	t.true(result.includes('Executing custom command'));
 	t.true(result.includes('/test'));
+});
+
+test('execute includes raw args in the custom command header', t => {
+	const command = createTestCommand({
+		fullName: 'worktree',
+		content: 'Purpose: {{args}}',
+	});
+
+	const result = executor.execute(command, ['purpose:', 'test', 'worktree']);
+	t.true(
+		result.startsWith(
+			'[Executing custom command: /worktree purpose: test worktree]',
+		),
+	);
+	t.true(result.includes('Purpose: purpose: test worktree'));
 });
 
 test('execute falls back to a parameter default when the arg is omitted', t => {

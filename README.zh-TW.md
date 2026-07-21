@@ -1,11 +1,13 @@
-# Nanocoder
+# Omnicode
+
+**最佳 Claude Code 替代方案 -- 多供應商自由切換的 AI 程式設計 CLI。**
 
 [English](README.md)
 [简体中文](README.zh-CN.md)
 
 一個純終端驅動的開源程式設計 Agent，由社群共同打造，不受商業公司控制。模型隨意選擇，程式碼留在本地，告別平台綁定。
 
-Nanocoder 由非營利性 AI 開發者社群 [Nano Collective](https://nanocollective.org) 打造。它能透過你指定的模型來實現 Agentic Coding（智能體程式設計）：既能用 Ollama 跑本地模型，也能接入 OpenRouter、Anthropic、Google 以及各類相容 OpenAI 格式的 API。誰來處理你的程式碼？資料傳送到哪裡？全由你自己決定。這裡沒有閉源黑盒，也沒有把關鍵能力鎖在付費牆後面：**尊重隱私**、**本地優先**、**面向所有人免費開放**。
+Omnicode 由非營利性 AI 開發者社群 [Nano Collective](https://nanocollective.org) 打造。它能透過你指定的模型來實現 Agentic Coding（智能體程式設計）：既能用 Ollama 跑本地模型，也能接入 DeepSeek、GLM、OpenRouter、Anthropic、Google 以及各類相容 OpenAI 格式的 API。誰來處理你的程式碼？資料傳送到哪裡？全由你自己決定。這裡沒有閉源黑盒，也沒有把關鍵能力鎖在付費牆後面：**尊重隱私**、**本地優先**、**面向所有人免費開放**。
 
 ![Example](./.github/assets/example-preview.gif)
 
@@ -22,8 +24,8 @@ Nanocoder 由非營利性 AI 開發者社群 [Nano Collective](https://nanocolle
 ## 快速開始
 
 ```bash
-npm install -g @nanocollective/nanocoder
-nanocoder
+npm install -g @nanocollective/omnicode
+omnicode
 ```
 
 如果你使用 macOS/Linux，也可以通过 [Homebrew](docs/getting-started/installation.md#homebrew-macoslinux) 或 [Nix Flakes](docs/getting-started/installation.md#nix-flakes) 安裝。
@@ -34,17 +36,17 @@ nanocoder
 
 ```bash
 # 指定 Provider 和模型，直接執行一次性任務（非互動模式）
-nanocoder --provider openrouter --model google/gemini-3.1-flash run "analyze src/app.ts"
+omnicode --provider openrouter --model google/gemini-3.1-flash run "analyze src/app.ts"
 
 # 指定 Provider，進入互動模式
-nanocoder --provider ollama --model llama3.1
+omnicode --provider ollama --model llama3.1
 
 # 參數可以靈活放在 run 命令前面或後面
-nanocoder run --provider openrouter "refactor database module"
+omnicode run --provider openrouter "refactor database module"
 
 # 直接以特定模式啟動（normal、auto-accept、yolo、plan）
-nanocoder --mode yolo
-nanocoder --mode plan run "audit the auth module"
+omnicode --mode yolo
+omnicode --mode plan run "audit the auth module"
 ```
 
 ## 文件
@@ -60,15 +62,15 @@ nanocoder --mode plan run "audit the auth module"
 
 ## 為什麼選擇社群驅動
 
-Nanocoder 由社群集體而非商業公司打造，直接決定了它的安全性。這裡沒有付費牆，沒有在後台偷偷上傳你 Prompt 的遙測，也沒有被 KPI 和商業變現綁架的更新路線圖。開發它的人，正是每天在真實工作中使用它的人。
+Omnicode 由社群集體而非商業公司打造，直接決定了它的安全性。這裡沒有付費牆，沒有在後台偷偷上傳你 Prompt 的遙測，也沒有被 KPI 和商業變現綁架的更新路線圖。開發它的人，正是每天在真實工作中使用它的人。
 
-以社群形式開源共建，意味著 Nanocoder 會堅持中立：你不會被某一家大廠的模型生態綁死；同時，Nano Collective 旗下的所有專案都共用同一套程式碼規範、測試標準和發佈流程，這讓程式碼庫保持清晰、易讀，也對開源貢獻者更友好。
+以社群形式開源共建，意味著 Omnicode 會堅持中立：你不會被某一家大廠的模型生態綁死；同時，Nano Collective 旗下的所有專案都共用同一套程式碼規範、測試標準和發佈流程，這讓程式碼庫保持清晰、易讀，也對開源貢獻者更友好。
 
 這不僅僅是一個趁手的工具。我們正在打造一個真正開放的 AI 工具生態，歡迎看看 [Nano Collective 的其他開源專案](https://nanocollective.org)。現在加入的早期貢獻者，將直接參與塑造這個生態的未來。
 
 ## 贊助商
 
-Nanocoder 純為社群而生，不以營利為目的。我們的持續開發離不開贊助商的支持。[成為贊助商](https://nanocollective.org/sponsor)。
+Omnicode 純為社群而生，不以營利為目的。我們的持續開發離不開贊助商的支持。[成為贊助商](https://nanocollective.org/sponsor)。
 
 ### [Atlas Cloud](https://www.atlascloud.ai/console/coding-plan)
 

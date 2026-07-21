@@ -20,6 +20,12 @@ export interface AIProviderConfig {
 	requestTimeout?: number;
 	socketTimeout?: number;
 	maxRetries?: number; // Maximum number of retries for failed requests (default: 2)
+	/**
+	 * Optional model to try once after the primary model fails with a provider/API
+	 * error after its normal retry budget is exhausted. Must be a model exposed by
+	 * this same provider config.
+	 */
+	fallbackModel?: string;
 	connectionPool?: {
 		idleTimeout?: number;
 		cumulativeMaxIdleTimeout?: number;
@@ -56,6 +62,7 @@ export interface ProviderConfig {
 	requestTimeout?: number;
 	socketTimeout?: number;
 	maxRetries?: number; // Maximum number of retries for failed requests (default: 2)
+	fallbackModel?: string;
 	organizationId?: string;
 	timeout?: number;
 	connectionPool?: {
@@ -150,6 +157,7 @@ export interface AppConfig {
 		requestTimeout?: number;
 		socketTimeout?: number;
 		maxRetries?: number; // Maximum number of retries for failed requests (default: 2)
+		fallbackModel?: string;
 		connectionPool?: {
 			idleTimeout?: number;
 			cumulativeMaxIdleTimeout?: number;
@@ -419,4 +427,17 @@ export interface UserPreferences {
 	reasoningExpanded?: boolean;
 	compactToolDisplay?: boolean;
 	enablePromptScrubbing?: boolean;
+	showWorkingIndicator?: boolean;
+	statusLine?: import('@/types/statusline').StatusLineConfig;
+	/**
+	 * Interactive TUI screen mode. true (default): fullscreen on the
+	 * alternate screen buffer with in-app scrolling (wheel / PgUp / PgDn).
+	 * false: inline mode on the main screen — finished messages print into
+	 * the terminal's native scrollback, so the terminal's own scrollbar,
+	 * wheel, and search work, but the TUI cannot clip or re-layout old
+	 * content. Also switchable per-run with the --no-alt-screen flag.
+	 */
+	alternateScreen?: boolean;
+	/** Max diff lines shown in compact-mode file results. 0 = unlimited. Default 20. */
+	compactDiffMaxLines?: number;
 }

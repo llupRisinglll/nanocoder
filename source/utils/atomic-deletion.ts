@@ -64,6 +64,64 @@ export function handleAtomicDeletion(
 	return null;
 }
 
+export type PlaceholderSpan = {
+	start: number;
+	end: number;
+};
+
+/**
+ * All placeholder spans ([start, end) offsets) in the given text.
+ */
+export function getPlaceholderSpans(text: string): PlaceholderSpan[] {
+	const placeholderRegex = /\[Paste #\d+: \d+ chars\]/g;
+	const spans: PlaceholderSpan[] = [];
+	let match;
+
+	while ((match = placeholderRegex.exec(text)) !== null) {
+		spans.push({start: match.index, end: match.index + match[0].length});
+	}
+
+	return spans;
+}
+
+/**
+ * If offset falls strictly inside a placeholder, move it to the boundary so
+ * the cursor never lands mid-placeholder. Direction picks which boundary:
+ * the one behind ('left'), ahead ('right'), or whichever is closer ('nearest').
+ */
+export function snapOutOfPlaceholder(
+	text: string,
+	offset: number,
+	direction: 'left' | 'right' | 'nearest',
+): number {
+	for (const span of getPlaceholderSpans(text)) {
+		if (offset > span.start && offset < span.end) {
+			if (direction === 'left') return span.start;
+			if (direction === 'right') return span.end;
+			return offset - span.start <= span.end - offset ? span.start : span.end;
+		}
+	}
+
+	return offset;
+}
+
+/**
+ * The placeholder span a backspace at `offset` should consume whole:
+ * cursor sits at its end (or, defensively, inside it).
+ */
+export function findSpanForBackspace(
+	text: string,
+	offset: number,
+): PlaceholderSpan | null {
+	for (const span of getPlaceholderSpans(text)) {
+		if (offset > span.start && offset <= span.end) {
+			return span;
+		}
+	}
+
+	return null;
+}
+
 /**
  * Find placeholder at cursor position
  * Returns placeholder ID if cursor is within a placeholder, null otherwise

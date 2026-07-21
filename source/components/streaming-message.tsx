@@ -86,6 +86,29 @@ export default memo(function StreamingMessage({
 	const elapsedSec = (Date.now() - startTime) / 1000;
 	const tokPerSec = elapsedSec > 0.1 ? (tokens / elapsedSec).toFixed(1) : '—';
 
+	// Icon style (theme assistantIcon): mirror the settled AssistantMessage
+	// layout — "✦ text" with hanging indent, status line underneath where the
+	// "Worked for …" completion line will land.
+	if (colors.assistantIcon) {
+		return (
+			<>
+				<Box marginTop={1}>
+					<Text color={colors.secondary}>{colors.assistantIcon} </Text>
+					<Box flexDirection="column" flexGrow={1}>
+						{truncated && <Text>…</Text>}
+						<Text>{displayText}</Text>
+					</Box>
+				</Box>
+				<Box paddingLeft={2} marginTop={1} marginBottom={1}>
+					<Text color={colors.secondary}>
+						<Spinner type="dots" /> {model} · ~{tokens.toLocaleString()} tokens
+						· {tokPerSec} tok/s
+					</Text>
+				</Box>
+			</>
+		);
+	}
+
 	return (
 		<>
 			<Box marginBottom={1} marginTop={1}>

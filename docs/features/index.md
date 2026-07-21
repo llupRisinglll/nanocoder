@@ -138,6 +138,10 @@ Nanocoder [automatically saves your sessions](session-management.md) so you can 
 /resume last    # jump back into the most recent one
 ```
 
+```bash
+nanocoder --continue    # or resume from your shell at launch
+```
+
 Sessions are saved every 30 seconds by default and kept for 30 days.
 
 ## Tracking Complex Work
@@ -220,9 +224,23 @@ Extend Nanocoder's capabilities by connecting [MCP (Model Context Protocol) serv
 /mcp            # see connected servers and tools
 ```
 
+## Under the Hood: Architecture
+
+These pages explain how Nanocoder works internally — not how to use features,
+but how the request pipeline, caching, and tool naming actually function. They
+are written in plain English for anyone who wants to understand what is
+happening behind the scenes.
+
+| Topic | What it covers |
+|-------|----------------|
+| [Prompt Caching](../architecture/prompt-caching.md) | How Nanocoder saves time and money by reusing parts of your conversation (stable vs. volatile blocks, breakpoint budget, provider differences) |
+| [Tool Naming Conventions](../architecture/tool-names.md) | How tool names are translated per provider so every model recognizes them (Claude Code, Codex, local models) |
+| [Images and Attachments](../architecture/images-and-attachments.md) | How images and files are prepared before sending to the model (size limits, detail levels, file parts for PDFs) |
+
 ## Feature Reference
 
 | Feature | Description |
+|---------|-------------|
 |---------|-------------|
 | [Skills](skills.md) | **Umbrella** — unified extension model for commands, subagents, tools, and event triggers |
 | [Custom Commands](custom-commands.md) | Reusable AI prompts as markdown files (a kind of skill member) |

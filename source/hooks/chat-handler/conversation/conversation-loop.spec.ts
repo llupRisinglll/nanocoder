@@ -1,7 +1,8 @@
 import test from 'ava';
 import {clearAppConfig, getAppConfig} from '@/config/index.js';
 import {resetShutdownManager} from '@/utils/shutdown/shutdown-manager.js';
-import {processAssistantResponse, resetFallbackNotice, resetLastTurnHadReasoning} from './conversation-loop.js';
+import {processAssistantResponse, resetFallbackNotice, resetLastTurnHadReasoning, resetPendingThoughtAccumulator} from './conversation-loop.js';
+import {getGroupedCompactDescription} from '@/utils/tool-result-display.js';
 import type {
 	ApiUsageSnapshot,
 	LLMChatResponse,
@@ -1372,7 +1373,7 @@ test.serial(
 	async t => {
 		// Regression: counts accumulated across prior reasoning-only tool turns
 		// (e.g. two execute_bash calls) must flush as ONE combined summary
-		// ("Ran 2 commands"), not stacked "Ran 1 command" lines. The flush
+		// ("execute_bash ×2"), not stacked single-tool lines. The flush
 		// fires on narrative-text completion, not on reasoning.
 		resetLastTurnHadReasoning();
 		const queuedComponents: any[] = [];
@@ -1398,21 +1399,263 @@ test.serial(
 		);
 		t.is(summaries.length, 1, 'Should flush exactly one combined summary box');
 
-		// displayCompactCountsSummary maps entries to CompactToolResult
-		// children, so props.children is always an array.
-		const descriptions = (summaries[0].props.children as any[]).map(
-			(child: any) => child.props.description,
-		);
+		// displayCompactCountsSummary passes entries down to
+		// CompactCountsSummaryBlock, which maps them to CompactToolResult
+		// children internally (icon-style themes read colors.assistantIcon to
+		// decide indentation, so the summary is a component, not a raw Box).
+		const descriptions = (
+			summaries[0].props.entries as Array<[string, number]>
+		).map(([toolName, count]) => getGroupedCompactDescription(toolName, count));
 		t.deepEqual(
 			descriptions,
-			['Ran 2 commands'],
-			'Two accumulated bash calls combine into "Ran 2 commands"',
+			['execute_bash ×2'],
+			'Two accumulated bash calls combine into "execute_bash ×2"',
 		);
 		t.deepEqual(
 			compactToolCountsRef.current,
 			{},
 			'Accumulator is reset after flushing',
 		);
+	},
+);
+
+test.serial(
+	'processAssistantResponse - omnicode merged ThoughtRunSummary includes compact tool counts',
+	async t => {
+		resetLastTurnHadReasoning();
+		resetPendingThoughtAccumulator();
+
+		const queuedComponents: any[] = [];
+		const compactToolCountsRef = {current: {execute_bash: 3}};
+		const params = createDefaultParams({
+			client: createMockClient({
+				content: 'All done!',
+				reasoning: 'Let me summarise the results.',
+				toolCalls: undefined,
+				toolsDisabled: false,
+			}),
+			addToChatQueue: (component: any) => {
+				queuedComponents.push(component);
+			},
+			compactToolCountsRef,
+			onSetCompactToolCounts: () => {},
+			iconThemeRef: {current: true},
+			reasoningExpandedRef: {current: false},
+		});
+
+		await processAssistantResponse(params);
+
+		const thoughtSummaries = queuedComponents.filter((c: any) =>
+			String(c.key).includes('thought-run-summary'),
+		);
+		t.is(thoughtSummaries.length, 1);
+		t.deepEqual(thoughtSummaries[0].props.toolCounts, {execute_bash: 3});
+		t.is(thoughtSummaries[0].props.toolCountsExpanded, false);
+		t.deepEqual(compactToolCountsRef.current, {});
+	},
+);
+
+test.serial(
+	'processAssistantResponse - omnicode ThoughtRunSummary respects expanded compact tool display',
+	async t => {
+		resetLastTurnHadReasoning();
+		resetPendingThoughtAccumulator();
+
+		const queuedComponents: any[] = [];
+		const compactToolCountsRef = {
+			current: {
+				execute_bash: {
+					count: 2,
+					details: ['first command', 'last command'],
+				},
+			},
+		};
+		const params = createDefaultParams({
+			client: createMockClient({
+				content: 'All done!',
+				reasoning: 'Let me summarise the results.',
+				toolCalls: undefined,
+				toolsDisabled: false,
+			}),
+			addToChatQueue: (component: any) => {
+				queuedComponents.push(component);
+			},
+			compactToolCountsRef,
+			compactToolDisplayRef: {current: false},
+			onSetCompactToolCounts: () => {},
+			iconThemeRef: {current: true},
+			reasoningExpandedRef: {current: false},
+		});
+
+		await processAssistantResponse(params);
+
+		const thoughtSummaries = queuedComponents.filter((c: any) =>
+			String(c.key).includes('thought-run-summary'),
+		);
+		t.is(thoughtSummaries.length, 1);
+		t.is(thoughtSummaries[0].props.toolCountsExpanded, true);
+	},
+);
+
+// ============================================================================
+// Omnicode Merged Thought Summary Tests (iconThemeRef)
+// ============================================================================
+
+test.serial(
+	'processAssistantResponse - omnicode collapsed reasoning merges consecutive turns into one ThoughtRunSummary',
+	async t => {
+		resetLastTurnHadReasoning();
+		resetPendingThoughtAccumulator();
+
+		let chatCallCount = 0;
+		const mockClient = createMockClient({});
+		mockClient.chat = async () => {
+			chatCallCount += 1;
+			if (chatCallCount === 1) {
+				return {
+					choices: [
+						{
+							message: {
+								role: 'assistant',
+								content: '',
+								tool_calls: [
+									{id: 'call_1', function: {name: 'read_file', arguments: '{}'}},
+								],
+								reasoning: 'First thought.',
+							},
+						},
+					],
+					toolsDisabled: false,
+				};
+			}
+			// Second turn: reasoning again, then a terminal text reply.
+			return {
+				choices: [
+					{
+						message: {
+							role: 'assistant',
+							content: 'All done!',
+							reasoning: 'Second thought.',
+						},
+					},
+				],
+				toolsDisabled: false,
+			};
+		};
+
+		const mockToolManager = createMockToolManager({
+			tools: ['read_file'],
+			needsApproval: false,
+		});
+
+		const queuedComponents: any[] = [];
+		const params = createDefaultParams({
+			client: mockClient as any,
+			toolManager: mockToolManager as any,
+			addToChatQueue: (component: any) => {
+				queuedComponents.push(component);
+			},
+			iconThemeRef: {current: true},
+		});
+
+		await processAssistantResponse(params);
+
+		// Both reasoning turns merge into exactly one ThoughtRunSummary — no
+		// per-turn AssistantReasoning component should have been queued.
+		const assistantReasoning = queuedComponents.filter(
+			(c: any) => c.props?.reasoning !== undefined,
+		);
+		t.is(
+			assistantReasoning.length,
+			0,
+			'Collapsed omnicode reasoning should never push per-turn AssistantReasoning',
+		);
+
+		const thoughtSummaries = queuedComponents.filter((c: any) =>
+			String(c.key).includes('thought-run-summary'),
+		);
+		t.is(
+			thoughtSummaries.length,
+			1,
+			'Two consecutive reasoning turns should merge into one summary line',
+		);
+	},
+);
+
+test.serial(
+	'processAssistantResponse - omnicode expanded reasoning keeps per-turn AssistantReasoning (no merge)',
+	async t => {
+		resetLastTurnHadReasoning();
+		resetPendingThoughtAccumulator();
+
+		const queuedComponents: any[] = [];
+		const params = createDefaultParams({
+			client: createMockClient({
+				content: 'Here is my response!',
+				reasoning: 'Expanded thought.',
+				toolCalls: undefined,
+				toolsDisabled: false,
+			}),
+			addToChatQueue: (component: any) => {
+				queuedComponents.push(component);
+			},
+			iconThemeRef: {current: true},
+			reasoningExpandedRef: {current: true},
+		});
+
+		await processAssistantResponse(params);
+
+		const assistantReasoning = queuedComponents.filter(
+			(c: any) => c.props?.reasoning === 'Expanded thought.',
+		);
+		t.is(
+			assistantReasoning.length,
+			1,
+			'Expanded reasoning should still render per-turn, even in omnicode',
+		);
+
+		const thoughtSummaries = queuedComponents.filter((c: any) =>
+			String(c.key).includes('thought-run-summary'),
+		);
+		t.is(thoughtSummaries.length, 0, 'No merge should occur while expanded');
+	},
+);
+
+test.serial(
+	'processAssistantResponse - non-omnicode (no iconThemeRef) never merges reasoning',
+	async t => {
+		resetLastTurnHadReasoning();
+		resetPendingThoughtAccumulator();
+
+		const queuedComponents: any[] = [];
+		const params = createDefaultParams({
+			client: createMockClient({
+				content: 'Here is my response!',
+				reasoning: 'Classic theme thought.',
+				toolCalls: undefined,
+				toolsDisabled: false,
+			}),
+			addToChatQueue: (component: any) => {
+				queuedComponents.push(component);
+			},
+			// iconThemeRef intentionally omitted — mirrors every non-omnicode theme.
+		});
+
+		await processAssistantResponse(params);
+
+		const assistantReasoning = queuedComponents.filter(
+			(c: any) => c.props?.reasoning === 'Classic theme thought.',
+		);
+		t.is(
+			assistantReasoning.length,
+			1,
+			'Classic themes always render per-turn AssistantReasoning, unmerged',
+		);
+
+		const thoughtSummaries = queuedComponents.filter((c: any) =>
+			String(c.key).includes('thought-run-summary'),
+		);
+		t.is(thoughtSummaries.length, 0);
 	},
 );
 
@@ -1432,6 +1675,7 @@ function setupAutoCompactTestEnv() {
 	clearAppConfig();
 	resetFallbackNotice();
 	resetLastTurnHadReasoning();
+	resetPendingThoughtAccumulator();
 }
 
 test.serial.beforeEach(() => {

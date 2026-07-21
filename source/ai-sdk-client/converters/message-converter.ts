@@ -1,13 +1,65 @@
 import type {
 	AssistantContent,
+	FilePart,
 	ImagePart,
 	ModelMessage,
 	TextPart,
 	ToolCallPart,
 	UserContent,
 } from 'ai';
-import type {Message} from '@/types/index';
+import type {ImageAttachment, Message} from '@/types/index';
 import type {TestableMessage} from '../types.js';
+
+/**
+ * Drop images whose base64 payload exceeds this size (per image). Providers
+ * reject oversized images with a 400 (e.g. Anthropic's 5MB image / 100MB total
+ * request limits, OpenAI's per-request cap). We preemptively drop the largest
+ * offenders so one bad paste doesn't fail the whole turn. The text part of the
+ * user message still goes through; we just lose the image.
+ *
+ * Set conservatively at 4MB base64 (~3MB raw) to stay under both Anthropic and
+ * OpenAI limits. Codex/opencode normalize images down before sending (see
+ * opencode `Image.Service`); a follow-up could integrate sharp/resizing.
+ */
+const MAX_IMAGE_BASE64_BYTES = 4 * 1024 * 1024;
+
+function isImageMediaType(mediaType: string): boolean {
+	return mediaType.toLowerCase().startsWith('image/');
+}
+
+/**
+ * Convert an `ImageAttachment` to an AI SDK image part with provider-aware
+ * detail metadata. Returns `null` if the image should be dropped (too large).
+ */
+function toImagePart(image: ImageAttachment): ImagePart | null {
+	if (image.data.length > MAX_IMAGE_BASE64_BYTES) return null;
+	// `imageDetail: 'auto'` lets OpenAI/Codex pick high/low based on size;
+	// matches Codex's default after it strips explicit `detail` (see
+	// codex-rs/core/src/client_common.rs:64 `strip_image_details`). The
+	// providerOptions are ignored by providers that don't read them.
+	return {
+		type: 'image',
+		image: `data:${image.mediaType};base64,${image.data}`,
+		mediaType: image.mediaType,
+		providerOptions: {openai: {imageDetail: 'auto'}},
+	};
+}
+
+/**
+ * Convert a non-image attachment (PDF, text, etc.) to an AI SDK file part.
+ * Claude accepts PDFs as file parts; OpenAI accepts them in the Responses API.
+ * Image-y media types are handled by `toImagePart` instead.
+ */
+function toFilePart(attachment: ImageAttachment): FilePart {
+	return {
+		type: 'file',
+		data: attachment.data,
+		mediaType: attachment.mediaType,
+		...(attachment.source
+			? {filename: attachment.source.split('/').pop() || undefined}
+			: {}),
+	};
+}
 
 /**
  * Checks if an assistant message is empty (no content and no tool calls).
@@ -102,20 +154,34 @@ export function convertToModelMessages(messages: Message[]): ModelMessage[] {
 		}
 
 		if (msg.role === 'user') {
-			// Multimodal turn: emit the text alongside one image part per
-			// attachment. Image bytes travel as a data URL, which the Anthropic,
-			// Google, and OpenAI-compatible providers all accept.
+			// Multimodal turn: emit the text alongside one part per attachment.
+			// Images travel as data URLs (accepted by Anthropic, Google, and
+			// OpenAI-compatible providers); non-image attachments (PDFs, etc.)
+			// travel as FilePart (Claude accepts these in-tool-result too).
+			// Oversized images are dropped rather than failing the whole request.
 			if (msg.images && msg.images.length > 0) {
 				const content: UserContent = [];
 				if (msg.content) {
 					content.push({type: 'text', text: msg.content} as TextPart);
 				}
-				for (const image of msg.images) {
+				let droppedImages = 0;
+				for (const attachment of msg.images) {
+					if (isImageMediaType(attachment.mediaType)) {
+						const part = toImagePart(attachment);
+						if (part) {
+							content.push(part);
+						} else {
+							droppedImages++;
+						}
+					} else {
+						content.push(toFilePart(attachment));
+					}
+				}
+				if (droppedImages > 0) {
 					content.push({
-						type: 'image',
-						image: `data:${image.mediaType};base64,${image.data}`,
-						mediaType: image.mediaType,
-					} as ImagePart);
+						type: 'text',
+						text: `[${droppedImages} image${droppedImages === 1 ? '' : 's'} omitted: exceeded the per-image size limit. Re-attach smaller images if needed.]`,
+					} as TextPart);
 				}
 				return {
 					role: 'user',

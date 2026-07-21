@@ -1,7 +1,7 @@
 {
-	"name": "nanocoder-vscode",
-	"displayName": "Nanocoder",
-	"description": "VS Code integration for Nanocoder - local-first AI coding assistant",
+	"name": "omnicode-vscode",
+	"displayName": "Omnicode",
+	"description": "VS Code integration for Omnicode - multi-provider local-first AI coding assistant",
 	"version": "0.3.0",
 	"publisher": "nanocollective",
 	"repository": {
@@ -20,9 +20,12 @@
 		"ai",
 		"coding",
 		"assistant",
+		"omnicode",
 		"nanocoder",
 		"ollama",
-		"local"
+		"deepseek",
+		"local",
+		"claude-code-alternative"
 	],
 	"activationEvents": [
 		"onStartupFinished"
@@ -32,38 +35,38 @@
 	"contributes": {
 		"commands": [
 			{
-				"command": "nanocoder.connect",
-				"title": "Connect to Nanocoder",
-				"category": "Nanocoder"
+				"command": "omnicode.connect",
+				"title": "Connect to Omnicode",
+				"category": "Omnicode"
 			},
 			{
-				"command": "nanocoder.disconnect",
-				"title": "Disconnect from Nanocoder",
-				"category": "Nanocoder"
+				"command": "omnicode.disconnect",
+				"title": "Disconnect from Omnicode",
+				"category": "Omnicode"
 			},
 			{
-				"command": "nanocoder.startCli",
-				"title": "Start Nanocoder CLI",
-				"category": "Nanocoder"
+				"command": "omnicode.startCli",
+				"title": "Start Omnicode CLI",
+				"category": "Omnicode"
 			}
 		],
 		"configuration": {
-			"title": "Nanocoder",
+			"title": "Omnicode",
 			"properties": {
 				"nanocoder.serverPort": {
 					"type": "number",
 					"default": 51820,
-					"description": "WebSocket server port for communication with Nanocoder CLI"
+					"description": "WebSocket server port for communication with Omnicode CLI"
 				},
 				"nanocoder.autoConnect": {
 					"type": "boolean",
 					"default": true,
-					"description": "Automatically connect to Nanocoder CLI on startup"
+					"description": "Automatically connect to Omnicode CLI on startup"
 				},
 				"nanocoder.autoStartCli": {
 					"type": "boolean",
 					"default": false,
-					"description": "Automatically start Nanocoder CLI if not running"
+					"description": "Automatically start Omnicode CLI if not running"
 				},
 				"nanocoder.showDiffPreview": {
 					"type": "boolean",

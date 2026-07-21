@@ -1,5 +1,7 @@
 import test from 'ava';
-import {executeToolsDirectly} from './tool-executor.js';
+import type React from 'react';
+import {renderWithTheme} from '@/test-utils/render-with-theme.js';
+import {displayExecutedTool, executeToolsDirectly} from './tool-executor.js';
 import type {ToolCall, ToolResult} from '@/types/core';
 
 // ============================================================================
@@ -200,6 +202,133 @@ test('executeToolsDirectly - executes tool successfully', async t => {
 	t.is(results[0].name, 'test_tool');
 	t.true(results[0].content.includes('Tool executed'));
 });
+
+test('displayExecutedTool - omnicode compact execute_bash renders command detail before grouping', async t => {
+	const conversationStateManager = createMockConversationStateManager();
+	const addToChatQueueCalls: unknown[] = [];
+	const countedTools: Array<[string, string | undefined]> = [];
+
+	const toolCall: ToolCall = {
+		id: 'call_bash_1',
+		function: {
+			name: 'execute_bash',
+			arguments: '{"command": "echo one"}',
+		},
+	};
+	const result: ToolResult = {
+		tool_call_id: toolCall.id,
+		role: 'tool',
+		name: 'execute_bash',
+		content: 'EXIT_CODE: 0\none',
+	};
+
+	await displayExecutedTool(
+		{toolCall, result},
+		null,
+		component => {
+			addToChatQueueCalls.push(component);
+		},
+		conversationStateManager as any,
+		{
+			compactDisplay: true,
+			iconTheme: true,
+			onCompactToolCount: (toolName, detail) => {
+				countedTools.push([toolName, detail]);
+			},
+		},
+	);
+
+	t.deepEqual(countedTools, [['execute_bash', 'echo one']]);
+	t.is(addToChatQueueCalls.length, 0);
+});
+
+test('displayExecutedTool - omnicode non-interactive execute_bash renders command detail', async t => {
+	const conversationStateManager = createMockConversationStateManager();
+	const addToChatQueueCalls: unknown[] = [];
+	const countedTools: string[] = [];
+
+	const toolCall: ToolCall = {
+		id: 'call_bash_noninteractive',
+		function: {
+			name: 'execute_bash',
+			arguments: '{"command": "docker ps"}',
+		},
+	};
+	const result: ToolResult = {
+		tool_call_id: toolCall.id,
+		role: 'tool',
+		name: 'execute_bash',
+		content: 'EXIT_CODE: 0\ncontainer',
+	};
+
+	await displayExecutedTool(
+		{toolCall, result},
+		null,
+		component => {
+			addToChatQueueCalls.push(component);
+		},
+		conversationStateManager as any,
+		{
+			compactDisplay: true,
+			iconTheme: true,
+			nonInteractiveMode: true,
+			onCompactToolCount: toolName => {
+				countedTools.push(toolName);
+			},
+		},
+	);
+
+	t.deepEqual(countedTools, []);
+	t.is(addToChatQueueCalls.length, 1);
+	const {lastFrame, unmount} = renderWithTheme(
+		addToChatQueueCalls[0] as React.ReactElement,
+	);
+	const output = lastFrame();
+	t.regex(output!, /Bash\(docker ps\)/);
+	unmount();
+});
+
+test.serial(
+	'executeToolsDirectly - compact bash exposes live tail while running',
+	async t => {
+		const runningCounts: unknown[] = [];
+		const compactCounts: Array<[string, string | string[] | undefined]> = [];
+		const command = "printf 'start\\n'; sleep 0.05; printf 'done\\n'";
+
+		const results = await executeToolsDirectly(
+			[
+				{
+					id: 'call_bash_live_tail',
+					function: {
+						name: 'execute_bash',
+						arguments: JSON.stringify({command}),
+					},
+				},
+			],
+			createMockToolManager() as any,
+			createMockConversationStateManager() as any,
+			() => {},
+			{
+				compactDisplay: true,
+				setLiveComponent: () => {},
+				onRunningToolCounts: counts => {
+					if (counts) runningCounts.push(counts);
+				},
+				onCompactToolCount: (toolName, detail) => {
+					compactCounts.push([toolName, detail]);
+				},
+			},
+		);
+
+		t.is(results.length, 1);
+		t.true(runningCounts.length > 0);
+		const firstRunning = runningCounts[0] as Record<string, any>;
+		t.is(firstRunning.execute_bash.count, 1);
+		t.deepEqual(firstRunning.execute_bash.details, [command]);
+		t.deepEqual(firstRunning.execute_bash.liveDetails(), [command]);
+		t.deepEqual(compactCounts, [['execute_bash', command]]);
+	},
+);
 
 test('executeToolsDirectly - executes multiple read-only tools in parallel', async t => {
 	const toolCalls: ToolCall[] = [
@@ -504,6 +633,45 @@ test('executeToolsDirectly - compact display calls onCompactToolCount instead of
 	t.is(addToChatQueueCalls.length, 0);
 	// Should have called onCompactToolCount for each tool
 	t.deepEqual(compactCounts, ['tool1', 'tool1', 'tool2']);
+});
+
+test('executeToolsDirectly - compact display tallies failures instead of queueing each one', async t => {
+	const toolCalls: ToolCall[] = [
+		{id: 'call_1', function: {name: 'failing_tool', arguments: '{}'}},
+		{id: 'call_2', function: {name: 'failing_tool', arguments: '{}'}},
+	];
+
+	const conversationStateManager = createMockConversationStateManager();
+	const addToChatQueueCalls: unknown[] = [];
+	const addToChatQueue = (component: unknown) => {
+		addToChatQueueCalls.push(component);
+	};
+	const toolManager = createMockToolManager({
+		validatorResult: undefined,
+		shouldFail: false,
+	});
+
+	const compactCounts: Array<{toolName: string; failed?: boolean}> = [];
+
+	const results = await executeToolsDirectly(
+		toolCalls,
+		toolManager,
+		conversationStateManager as any,
+		addToChatQueue,
+		{
+			compactDisplay: true,
+			onCompactToolCount: (toolName, _detail, failed) => {
+				compactCounts.push({toolName, failed});
+			},
+		},
+	);
+
+	t.is(results.length, 2);
+	t.is(addToChatQueueCalls.length, 0);
+	t.deepEqual(compactCounts, [
+		{toolName: 'failing_tool', failed: true},
+		{toolName: 'failing_tool', failed: true},
+	]);
 });
 
 test('executeToolsDirectly - non-interactive compact mode pushes one-liner per tool and skips onCompactToolCount', async t => {
@@ -818,7 +986,101 @@ test.serial(
 	},
 );
 
-test('executeToolsDirectly - compact mode renders errors instead of counting them', async t => {
+test.serial(
+	'executeToolsDirectly - compact agent exposes live tail and final details',
+	async t => {
+		const {setAgentToolExecutor} = await import('@/tools/agent-tool');
+		const {appendSubagentTool, updateSubagentProgressById} = await import(
+			'@/services/subagent-events'
+		);
+
+		let releaseAgent!: () => void;
+		const agentMayComplete = new Promise<void>(resolve => {
+			releaseAgent = resolve;
+		});
+
+		setAgentToolExecutor({
+			execute: async (
+				task: {subagent_type: string},
+				_signal?: AbortSignal,
+				_depth?: number,
+				agentId?: string,
+			) => {
+				t.truthy(agentId);
+				updateSubagentProgressById(agentId!, {
+					subagentName: task.subagent_type,
+					status: 'tool_call',
+					currentTool: 'read_file',
+					toolCallCount: 1,
+					turnCount: 1,
+					tokenCount: 42,
+				});
+				appendSubagentTool(agentId, 'read_file');
+				await agentMayComplete;
+				return {
+					subagentName: task.subagent_type,
+					output: 'ok',
+					success: true,
+					executionTimeMs: 1,
+				};
+			},
+		} as never);
+
+		const runningCounts: unknown[] = [];
+		const compactCounts: Array<{toolName: string; detail?: string | string[]}> =
+			[];
+		const run = executeToolsDirectly(
+			[
+				{
+					id: 'call_agent_compact',
+					function: {
+						name: 'agent',
+						arguments: JSON.stringify({
+							subagent_type: 'explore',
+							description: 'inspect repository',
+						}),
+					},
+				},
+			],
+			createMockToolManager() as any,
+			createMockConversationStateManager() as any,
+			() => {},
+			{
+				compactDisplay: true,
+				onRunningToolCounts: counts => {
+					if (counts) runningCounts.push(counts);
+				},
+				onCompactToolCount: (toolName, detail) => {
+					compactCounts.push({toolName, detail});
+				},
+			},
+		);
+
+		await delay(20);
+		t.true(runningCounts.length > 0);
+		const latestRunning = runningCounts.at(-1) as Record<string, any>;
+		const liveDetails = latestRunning.agent.liveDetails();
+		t.deepEqual(liveDetails, [
+			'explore: running read_file · 1 tool call · ~42 tokens',
+			'explore → read_file',
+		]);
+
+		releaseAgent();
+		await run;
+
+		t.deepEqual(compactCounts, [
+			{
+				toolName: 'agent',
+				detail: [
+					'explore: running read_file · 1 tool call · ~42 tokens',
+					'explore → read_file',
+				],
+			},
+		]);
+	},
+);
+
+test('executeToolsDirectly - compact mode counts errors instead of queueing them', async t => {
 	const toolCalls: ToolCall[] = [
 		{id: 'call_1', function: {name: 'failing_tool', arguments: '{}'}},
 	];
@@ -833,7 +1095,7 @@ test('executeToolsDirectly - compact mode renders errors instead of counting the
 		shouldFail: true,
 	});
 
-	const compactCounts: string[] = [];
+	const compactCounts: Array<{toolName: string; failed?: boolean}> = [];
 
 	const results = await executeToolsDirectly(
 		toolCalls,
@@ -842,17 +1104,16 @@ test('executeToolsDirectly - compact mode renders errors instead of counting the
 		addToChatQueue,
 		{
 			compactDisplay: true,
-			onCompactToolCount: (toolName) => {
-				compactCounts.push(toolName);
+			onCompactToolCount: (toolName, _detail, failed) => {
+				compactCounts.push({toolName, failed});
 			},
 		},
 	);
 
 	t.is(results.length, 1);
 	t.true(results[0].content.includes('Error:'));
-	// Error results render as a condensed one-liner (added to chat queue), not counted
-	t.true(addToChatQueueCalls.length > 0);
-	t.is(compactCounts.length, 0);
+	t.is(addToChatQueueCalls.length, 0);
+	t.deepEqual(compactCounts, [{toolName: 'failing_tool', failed: true}]);
 });
 
 test('executeToolsDirectly passes privacy options to rehydrate tools', async t => {

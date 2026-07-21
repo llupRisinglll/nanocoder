@@ -40,6 +40,7 @@ export class MCPClient {
 	private clients: Map<string, Client> = new Map();
 	private transports: Map<string, ClientTransport> = new Map();
 	private serverTools: Map<string, MCPTool[]> = new Map();
+	private serverInstructions: Map<string, string> = new Map();
 	private serverConfigs: Map<string, MCPServer> = new Map();
 	private isConnected: boolean = false;
 	private logger = getLogger();
@@ -127,15 +128,39 @@ export class MCPClient {
 
 				await client.connect(transport);
 
+				// Stdio transports are created with stderr:'pipe' (see
+				// TransportFactory) so server children can't write to the
+				// user's terminal. Drain the pipe into the logger — an
+				// unconsumed pipe would fill up and block the child.
+				if ('stderr' in transport && transport.stderr) {
+					const serverName = normalizedServer.name;
+					transport.stderr.on('data', (chunk: Buffer) => {
+						const text = chunk.toString('utf8').trimEnd();
+						if (text) {
+							this.logger.debug(`MCP server stderr [${serverName}]`, {
+								serverName,
+								stderr: text,
+							});
+						}
+					});
+				}
+
 				this.logger.info('MCP server connected successfully', {
 					serverName: normalizedServer.name,
 					transport: normalizedServer.transport,
 				});
 
-				// Store client, transport, and server config
+				// Store client, transport, server config, and optional server instructions.
+				// MCP servers may expose natural-language usage guidance in the initialize
+				// result; include it in the system prompt separately from the tool schema
+				// so models know server-specific conventions.
 				this.clients.set(normalizedServer.name, client);
 				this.transports.set(normalizedServer.name, transport);
 				this.serverConfigs.set(normalizedServer.name, normalizedServer);
+				const instructions = client.getInstructions()?.trim();
+				if (instructions) {
+					this.serverInstructions.set(normalizedServer.name, instructions);
+				}
 
 				// List available tools from this server
 				const toolsResult = await client.listTools();
@@ -259,6 +284,12 @@ export class MCPClient {
 			this.isConnected = true;
 			return results;
 		}, correlationId);
+	}
+
+	getInstructions(): Array<{name: string; instructions: string}> {
+		return Array.from(this.serverInstructions.entries())
+			.map(([name, instructions]) => ({name, instructions}))
+			.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
 	getAllTools(): Tool[] {

@@ -165,6 +165,22 @@ test('renders the static-component marker through ChatHistory', t => {
 	t.regex(lastFrame()!, /static-marker/);
 });
 
+test('renders transient notices above the input', t => {
+	const {lastFrame} = renderWithTheme(
+		<InteractiveApp
+			{...makeProps({startChat: true, client: {}})}
+			transientNoticeComponents={[<Text key="notice">Interrupted by user.</Text>]}
+		/>,
+	);
+	const output = lastFrame()!;
+	t.regex(output, /Interrupted by user\./);
+	t.regex(output, /What would you like me to help with\?/);
+	t.true(
+		output.indexOf('Interrupted by user.') <
+			output.indexOf('What would you like me to help with?'),
+	);
+});
+
 test('does not render ChatInput while startChat is false', t => {
 	const {lastFrame} = renderWithTheme(
 		<InteractiveApp {...makeProps({startChat: false})} />,

@@ -35,7 +35,20 @@ function getVersion(): string {
 	}
 }
 
-const DEFAULT_SHAPE: NanocoderShape = 'tiny';
+// Fork banner - custom ASCII art for llupRisinglll's fork
+const FORK_BANNER = `▄█▀█▄ █▄░▄█ █▄░█ █ █▀▀ █▀█ █▀▄ █▀▀
+▀█▄█▀ █░▀░█ █░▀█ █ █▄▄ █▄█ █▄▀ ██▄`;
+
+function ForkBanner() {
+	const {colors} = useTheme();
+	return (
+		<Gradient colors={colors.bannerGradient ?? [colors.primary, colors.tool]}>
+			<Text>{FORK_BANNER}</Text>
+		</Gradient>
+	);
+}
+
+const DEFAULT_SHAPE: NanocoderShape = 'fork';
 
 export interface WelcomeMessageProps {
 	currentProvider?: string;
@@ -51,6 +64,9 @@ export default memo(function WelcomeMessage({
 
 	// Get the user's preferred nanocoder shape or use default
 	const nanocoderShape = getNanocoderShape() ?? DEFAULT_SHAPE;
+
+	// Determine which banner to show - fork banner is default
+	const showForkBanner = nanocoderShape === 'fork';
 
 	// Check if tips should be shown
 	const showTips = shouldShowWelcomeTips();
@@ -76,10 +92,27 @@ export default memo(function WelcomeMessage({
 
 	return (
 		<>
-			{/* Banner */}
-			<Gradient colors={[colors.primary, colors.tool]}>
-				<BigText text="Nanocoder" font={nanocoderShape} />
-			</Gradient>
+			{/* Banner — marginTop separates it from the shell prompt that launched us */}
+			{showForkBanner ? (
+				<Box marginTop={1} marginBottom={1}>
+					<ForkBanner />
+				</Box>
+			) : (
+				<Box marginTop={1}>
+					<Gradient
+						colors={colors.bannerGradient ?? [colors.primary, colors.tool]}
+					>
+						<BigText text="Nanocoder" font={nanocoderShape} />
+					</Gradient>
+				</Box>
+			)}
+
+			{/* Fork Attribution */}
+			<Box marginBottom={1}>
+				<Text color={colors.secondary}>
+					A fork of nanocoder by llupRisinglll (Luis Edward Miranda)
+				</Text>
+			</Box>
 
 			{/* Info Header Box */}
 			<Box

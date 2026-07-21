@@ -3,7 +3,7 @@ import type {ConversationStateManager} from '@/app/utils/conversation-state';
 import AgentProgress, {MultiAgentProgress} from '@/components/agent-progress';
 import BashProgress from '@/components/bash-progress';
 import {ErrorMessage} from '@/components/message-box';
-import type {BashExecutionState} from '@/services/bash-executor';
+import {type BashExecutionState, bashExecutor} from '@/services/bash-executor';
 import {
 	clearAllSubagentProgress,
 	getSubagentProgress,
@@ -23,7 +23,9 @@ import {
 import {parseToolArguments} from '@/utils/tool-args-parser';
 import {
 	ALWAYS_EXPANDED_TOOLS,
+	type CompactToolActivityMap,
 	displayToolResult,
+	getCompactToolDetail,
 	LIVE_TASK_TOOLS,
 } from '@/utils/tool-result-display';
 
@@ -65,6 +67,7 @@ const executeBashStreaming = async (
 	toolManager: ToolManager | null,
 	setLiveComponent: (component: React.ReactNode) => void,
 	signal?: AbortSignal,
+	onStarted?: (executionId: string, command: string) => void,
 ): Promise<StreamingBashRun> => {
 	const execution = await runStreamingBashTool(
 		toolCall,
@@ -72,6 +75,7 @@ const executeBashStreaming = async (
 		setLiveComponent,
 		'direct-bash',
 		signal,
+		onStarted,
 	);
 	return {...execution, toolCall};
 };
@@ -79,10 +83,99 @@ const executeBashStreaming = async (
 /** Display + conversation-state options shared by every executed tool. */
 export interface ToolDisplayOptions {
 	compactDisplay?: boolean;
-	onCompactToolCount?: (toolName: string) => void;
+	onCompactToolCount?: (
+		toolName: string,
+		detail?: string | string[],
+		failed?: boolean,
+	) => void;
 	onLiveTaskUpdate?: () => void;
+	onRunningToolCounts?: (counts: CompactToolActivityMap | null) => void;
 	nonInteractiveMode?: boolean;
+	/**
+	 * Called immediately before a "detailed" compact tool line (bash command,
+	 * read path) renders, so any pending merged activity summary (omnicode's
+	 * "Thought for Ns, ..." line — see conversation-loop's flushCompactCounts)
+	 * flushes first and the detailed line appears in the right chronological
+	 * spot. No-op for every theme other than omnicode, where there is nothing
+	 * pending to flush.
+	 */
+	onBeforeDetailedToolLine?: () => void;
+	/**
+	 * Whether the active theme defines assistantIcon (currently only
+	 * omnicode) — threaded from useAppState's iconThemeRef snapshot for this
+	 * turn. Gates the detailed-line behavior below; every other theme keeps
+	 * folding these into the count tally exactly as before.
+	 */
+	iconTheme?: boolean;
+	/**
+	 * Live ref to the ctrl+r expand toggle (reasoningExpandedRef). Read at
+	 * each display call so the omnicode output preview under a detailed tool
+	 * line honors the CURRENT toggle state for newly rendered lines — same
+	 * semantics reasoning already has (Ink Static scrollback never
+	 * re-renders; ctrl+r changes what subsequent renders show).
+	 */
+	previewExpandedRef?: React.RefObject<boolean>;
 }
+
+const formatAgentProgressTail = (
+	agentName: string,
+	description: string,
+	progress: ReturnType<typeof getSubagentProgress>,
+): string[] => {
+	const details: string[] = [];
+	const statusParts: string[] = [];
+	if (progress.currentTool) {
+		statusParts.push(`running ${progress.currentTool}`);
+	} else if (progress.status === 'running') {
+		statusParts.push('thinking');
+	} else if (progress.status === 'complete') {
+		statusParts.push('complete');
+	} else if (progress.status === 'error') {
+		statusParts.push('error');
+	}
+	if (progress.toolCallCount > 0) {
+		statusParts.push(
+			`${progress.toolCallCount} tool call${progress.toolCallCount === 1 ? '' : 's'}`,
+		);
+	}
+	if (progress.tokenCount > 0) {
+		statusParts.push(`~${progress.tokenCount.toLocaleString()} tokens`);
+	}
+
+	details.push(
+		statusParts.length > 0
+			? `${agentName}: ${statusParts.join(' · ')}`
+			: `${agentName}: ${description}`,
+	);
+
+	for (const toolName of progress.toolHistory.slice(-3)) {
+		details.push(`${agentName} → ${toolName}`);
+	}
+
+	return details;
+};
+
+const formatBashProgressTail = (
+	command: string,
+	executionId: string,
+): string[] => {
+	const state = bashExecutor.getState(executionId);
+	if (!state) return [command];
+
+	const lines: string[] = [];
+	const output = state.outputPreview || state.stderr;
+	if (output.trim()) {
+		lines.push(...output.trimEnd().split(/\r?\n/).slice(-3));
+	} else if (state.error) {
+		lines.push(`Error: ${state.error}`);
+	} else if (state.isComplete) {
+		lines.push(`EXIT_CODE: ${state.exitCode ?? 'unknown'}`);
+	} else {
+		lines.push(command);
+	}
+
+	return lines;
+};
 
 /**
  * Execute a single already-approved tool call. execute_bash streams through the
@@ -96,6 +189,7 @@ export const executeApprovedTool = (
 	processToolUse: (toolCall: ToolCall) => Promise<ToolResult>,
 	setLiveComponent?: (component: React.ReactNode) => void,
 	signal?: AbortSignal,
+	onBashStarted?: (executionId: string, command: string) => void,
 ): Promise<StreamingBashRun | {toolCall: ToolCall; result: ToolResult}> => {
 	if (toolCall.function.name === 'execute_bash' && setLiveComponent) {
 		return executeBashStreaming(
@@ -103,6 +197,7 @@ export const executeApprovedTool = (
 			toolManager,
 			setLiveComponent,
 			signal,
+			onBashStarted,
 		);
 	}
 	return executeOne(toolCall, processToolUse);
@@ -153,15 +248,50 @@ export const displayExecutedTool = async (
 		const isError =
 			result.content.startsWith('Error: ') ||
 			result.content.startsWith('⚒ Validation failed');
+
+		// Enhanced compact display for file operations (shows path + diff)
+		const isFileOp =
+			result.name === 'write_file' ||
+			result.name === 'string_replace' ||
+			result.name === 'diff_edit';
+
+		// Omnicode: every tool with a meaningful primary detail (command,
+		// path, pattern, URL, query, …) gets its own detailed line instead of
+		// folding into the count tally — see getCompactToolDetail. Gated
+		// exclusively on options.iconTheme so every other theme keeps
+		// tallying these the way it always has. Tools with no single detail
+		// (getCompactToolDetail → null) still tally, even in omnicode.
+		const compactToolDetail = getCompactToolDetail(
+			result.name,
+			toolCall.function.arguments,
+		);
+		const isDetailedOmnicodeOp =
+			Boolean(options.iconTheme) && compactToolDetail !== null;
+
+		const iconDisplay = {
+			iconTheme: options.iconTheme,
+			expanded: options.previewExpandedRef?.current ?? false,
+		};
+
 		if (isError) {
-			// Condense failures to a short red one-liner in compact mode.
-			await displayToolResult(
-				toolCall,
-				result,
-				toolManager,
-				addToChatQueue,
-				true,
-			);
+			if (options.nonInteractiveMode) {
+				// Non-interactive mode has no live tally renderer, so keep
+				// one-line failures in chronological order.
+				await displayToolResult(
+					toolCall,
+					result,
+					toolManager,
+					addToChatQueue,
+					true,
+					iconDisplay,
+				);
+			} else {
+				options.onCompactToolCount?.(
+					result.name,
+					compactToolDetail?.detail,
+					true,
+				);
+			}
 		} else if (options.nonInteractiveMode) {
 			await displayToolResult(
 				toolCall,
@@ -169,9 +299,22 @@ export const displayExecutedTool = async (
 				toolManager,
 				addToChatQueue,
 				true,
+				iconDisplay,
 			);
+		} else if (isFileOp) {
+			// File operations get enhanced compact display with path + diff
+			await displayToolResult(
+				toolCall,
+				result,
+				toolManager,
+				addToChatQueue,
+				true,
+				iconDisplay,
+			);
+		} else if (isDetailedOmnicodeOp) {
+			options.onCompactToolCount?.(result.name, compactToolDetail?.detail);
 		} else {
-			options.onCompactToolCount?.(result.name);
+			options.onCompactToolCount?.(result.name, compactToolDetail?.detail);
 		}
 	} else if (result.name === 'execute_bash' && bashState) {
 		// Expanded mode: render the completed BashProgress (command +
@@ -256,7 +399,12 @@ const executeAgentBatch = async (
 	addToChatQueue: (component: React.ReactNode) => void,
 	compactDisplay?: boolean,
 	setLiveComponent?: (component: React.ReactNode) => void,
-	onCompactToolCount?: (toolName: string) => void,
+	onCompactToolCount?: (
+		toolName: string,
+		detail?: string | string[],
+		failed?: boolean,
+	) => void,
+	onRunningToolCounts?: (counts: CompactToolActivityMap | null) => void,
 	nonInteractiveMode?: boolean,
 	signal?: AbortSignal,
 ): Promise<
@@ -305,8 +453,36 @@ const executeAgentBatch = async (
 		return {toolCall, agentId, agentName, agentDesc, promise};
 	});
 
+	if (compactDisplay && !nonInteractiveMode && onRunningToolCounts) {
+		const counts: CompactToolActivityMap = {};
+		for (const e of agentExecutions) {
+			const current = counts[e.toolCall.function.name];
+			const currentActivity =
+				typeof current === 'number' ? {count: current} : current;
+			counts[e.toolCall.function.name] = {
+				count: (currentActivity?.count ?? 0) + 1,
+				details: [
+					...(currentActivity?.details ?? []),
+					`${e.agentName}: ${e.agentDesc}`,
+				],
+				liveDetails: () =>
+					formatAgentProgressTail(
+						e.agentName,
+						e.agentDesc,
+						getSubagentProgress(e.agentId),
+					),
+				running: true,
+			};
+		}
+		onRunningToolCounts(counts);
+	}
+
 	// Show live progress
-	if (setLiveComponent && agentExecutions.length > 0) {
+	if (
+		setLiveComponent &&
+		agentExecutions.length > 0 &&
+		(!compactDisplay || nonInteractiveMode)
+	) {
 		const agentInfos = agentExecutions.map(e => ({
 			agentId: e.agentId,
 			subagentName: e.agentName,
@@ -385,12 +561,21 @@ const executeAgentBatch = async (
 		if (compactDisplay) {
 			const isError = result.content.startsWith('Error: ');
 			if (isError) {
-				await displayToolResult(
-					e.toolCall,
-					result,
-					toolManager,
-					addToChatQueue,
-				);
+				if (nonInteractiveMode) {
+					await displayToolResult(
+						e.toolCall,
+						result,
+						toolManager,
+						addToChatQueue,
+						true,
+					);
+				} else {
+					onCompactToolCount?.(
+						result.name,
+						formatAgentProgressTail(e.agentName, e.agentDesc, progress),
+						true,
+					);
+				}
 			} else if (nonInteractiveMode) {
 				await displayToolResult(
 					e.toolCall,
@@ -400,7 +585,10 @@ const executeAgentBatch = async (
 					true,
 				);
 			} else {
-				onCompactToolCount?.(result.name);
+				onCompactToolCount?.(
+					result.name,
+					formatAgentProgressTail(e.agentName, e.agentDesc, progress),
+				);
 			}
 		} else {
 			addToChatQueue(
@@ -452,8 +640,13 @@ export const executeToolsDirectly = async (
 	addToChatQueue: (component: React.ReactNode) => void,
 	options?: {
 		compactDisplay?: boolean;
-		onCompactToolCount?: (toolName: string) => void;
+		onCompactToolCount?: (
+			toolName: string,
+			detail?: string | string[],
+			failed?: boolean,
+		) => void;
 		onLiveTaskUpdate?: () => void;
+		onRunningToolCounts?: (counts: CompactToolActivityMap | null) => void;
 		setLiveComponent?: (component: React.ReactNode) => void;
 		/**
 		 * When true, compact tool results push a one-liner directly to the
@@ -467,6 +660,9 @@ export const executeToolsDirectly = async (
 		 * cancel (escape) propagates into running subagents.
 		 */
 		signal?: AbortSignal;
+		onBeforeDetailedToolLine?: () => void;
+		iconTheme?: boolean;
+		previewExpandedRef?: React.RefObject<boolean>;
 	},
 ): Promise<ToolResult[]> => {
 	// Import processToolUse here to avoid circular dependencies
@@ -476,6 +672,35 @@ export const executeToolsDirectly = async (
 	const groups = groupForParallelExecution(toolsToExecuteDirectly, toolManager);
 
 	const directResults: ToolResult[] = [];
+
+	const showRunningGroup = (group: ToolCall[]) => {
+		if (!options?.compactDisplay || !options.onRunningToolCounts) return;
+		if (options.nonInteractiveMode || group.length === 0) return;
+
+		const counts: CompactToolActivityMap = {};
+		for (const toolCall of group) {
+			const toolName = toolCall.function.name;
+			const current = counts[toolName];
+			const currentActivity =
+				typeof current === 'number' ? {count: current} : current;
+			const detail = getCompactToolDetail(
+				toolName,
+				toolCall.function.arguments,
+			)?.detail;
+			counts[toolName] = {
+				count: (currentActivity?.count ?? 0) + 1,
+				details: detail
+					? [...(currentActivity?.details ?? []), detail]
+					: currentActivity?.details,
+				running: true,
+			};
+		}
+		options.onRunningToolCounts(counts);
+	};
+
+	const clearRunningGroup = () => {
+		options?.onRunningToolCounts?.(null);
+	};
 
 	for (const {group, type} of groups) {
 		let executions: Array<{
@@ -488,16 +713,23 @@ export const executeToolsDirectly = async (
 			// Parallel execution for consecutive agent tools
 			// Note: The promise resolves with the raw agent result. We return the
 			// ORIGINAL toolCall (with placeholders) to preserve history.
-			const agentResults = await executeAgentBatch(
-				group,
-				toolManager,
-				addToChatQueue,
-				options?.compactDisplay,
-				options?.setLiveComponent,
-				options?.onCompactToolCount,
-				options?.nonInteractiveMode,
-				options?.signal,
-			);
+			const agentResults = await (async () => {
+				try {
+					return await executeAgentBatch(
+						group,
+						toolManager,
+						addToChatQueue,
+						options?.compactDisplay,
+						options?.setLiveComponent,
+						options?.onCompactToolCount,
+						options?.onRunningToolCounts,
+						options?.nonInteractiveMode,
+						options?.signal,
+					);
+				} finally {
+					clearRunningGroup();
+				}
+			})();
 
 			// Agent results are already displayed by executeAgentBatch
 			for (const {toolCall, result} of agentResults) {
@@ -510,11 +742,16 @@ export const executeToolsDirectly = async (
 			continue;
 		}
 
-		if (type === 'readOnly' && group.length > 1) {
+		if (type === 'readOnly' && (group.length > 1 || options?.compactDisplay)) {
 			// Parallel execution for consecutive read-only tools
-			executions = await Promise.all(
-				group.map(toolCall => executeOne(toolCall, processToolUse)),
-			);
+			showRunningGroup(group);
+			try {
+				executions = await Promise.all(
+					group.map(toolCall => executeOne(toolCall, processToolUse)),
+				);
+			} finally {
+				clearRunningGroup();
+			}
 		} else {
 			// Sequential execution for non-parallelizable tools (or single-item groups)
 			executions = [];
@@ -526,6 +763,24 @@ export const executeToolsDirectly = async (
 						processToolUse,
 						options?.setLiveComponent,
 						options?.signal,
+						(executionId, command) => {
+							if (
+								!options?.compactDisplay ||
+								!options.onRunningToolCounts ||
+								options.nonInteractiveMode
+							) {
+								return;
+							}
+							options.onRunningToolCounts({
+								execute_bash: {
+									count: 1,
+									details: [command],
+									liveDetails: () =>
+										formatBashProgressTail(command, executionId),
+									running: true,
+								},
+							});
+						},
 					),
 				);
 			}

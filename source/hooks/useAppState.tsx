@@ -2,7 +2,11 @@ import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import type {TitleShape} from '@/components/ui/styled-title';
 import {getAppConfig} from '@/config/index';
 import {loadPreferences} from '@/config/preferences';
-import {defaultTheme} from '@/config/themes';
+import {
+	defaultTheme,
+	getThemeColors,
+	resolveThemePreset,
+} from '@/config/themes';
 import {resolveTune} from '@/config/tune';
 import {CustomCommandExecutor} from '@/custom-commands/executor';
 import {CustomCommandLoader} from '@/custom-commands/loader';
@@ -29,6 +33,7 @@ import type {Tokenizer} from '@/types/tokenization.js';
 import type {ThemePreset} from '@/types/ui';
 import {BoundedMap} from '@/utils/bounded-map';
 import type {PendingQuestion} from '@/utils/question-queue';
+import type {CompactToolActivityMap} from '@/utils/tool-result-display';
 
 export type ActiveMode =
 	| 'model'
@@ -47,7 +52,9 @@ export function useAppState(
 ) {
 	// Initialize theme and title shape from preferences
 	const preferences = loadPreferences();
-	const initialTheme = preferences.selectedTheme || defaultTheme;
+	const initialTheme = resolveThemePreset(
+		preferences.selectedTheme || defaultTheme,
+	);
 	const initialTitleShape = preferences.titleShape || 'pill';
 
 	const [client, setClient] = useState<LLMClient | null>(null);
@@ -143,18 +150,27 @@ export function useAppState(
 	const reasoningExpandedRef = useRef(false);
 	reasoningExpandedRef.current = reasoningExpanded;
 
+	// Whether the active theme defines assistantIcon (currently only
+	// omnicode). Threaded as a ref — rather than read via config's cached
+	// getColors() — into the conversation loop / tool executor / display
+	// helpers so the omnicode-only behaviors (merged Thought line, detailed
+	// bash/read compact lines) react live to a mid-session /theme switch and
+	// stay deterministic in tests instead of depending on disk-cached prefs.
+	const iconThemeRef = useRef(
+		Boolean(getThemeColors(currentTheme).assistantIcon),
+	);
+	iconThemeRef.current = Boolean(getThemeColors(currentTheme).assistantIcon);
+
 	// Compact tool display state
 	const [compactToolDisplay, setCompactToolDisplay] = useState<boolean>(true);
 	// Ref keeps current value accessible to long-running async loops
 	const compactToolDisplayRef = useRef(true);
 	compactToolDisplayRef.current = compactToolDisplay;
-	const [compactToolCounts, setCompactToolCounts] = useState<Record<
-		string,
-		number
-	> | null>(null);
+	const [compactToolCounts, setCompactToolCounts] =
+		useState<CompactToolActivityMap | null>(null);
 	// Mutable ref for the compact counts accumulator - shared between
 	// the async conversation loop and the toggle handler
-	const compactToolCountsRef = useRef<Record<string, number>>({});
+	const compactToolCountsRef = useRef<CompactToolActivityMap>({});
 
 	// Live task list state - renders in the live area (updating in-place)
 	// instead of appending repeated task lists to the static chat queue
@@ -324,6 +340,7 @@ export function useAppState(
 		currentTitleShape,
 		reasoningExpanded,
 		reasoningExpandedRef,
+		iconThemeRef,
 		toolManager,
 		customCommandLoader,
 		customCommandExecutor,

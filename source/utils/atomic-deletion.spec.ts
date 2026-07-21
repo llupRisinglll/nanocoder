@@ -3,7 +3,10 @@ import type {InputState, PastePlaceholderContent} from '../types/hooks';
 import {PlaceholderType} from '../types/hooks';
 import {
 	findPlaceholderAtPosition,
+	findSpanForBackspace,
+	getPlaceholderSpans,
 	handleAtomicDeletion,
+	snapOutOfPlaceholder,
 	wouldPartiallyDeletePlaceholder,
 } from './atomic-deletion';
 
@@ -191,4 +194,63 @@ test('atomic deletion works with multiple placeholders', t => {
 			originalSize: 50,
 		} as PastePlaceholderContent,
 	});
+});
+
+// --- Cursor atomicity helpers ---
+
+test('getPlaceholderSpans finds all placeholder spans', t => {
+	const text = 'a [Paste #1: 818 chars] b [Paste #2: 42 chars]';
+	const spans = getPlaceholderSpans(text);
+
+	t.is(spans.length, 2);
+	t.is(text.slice(spans[0].start, spans[0].end), '[Paste #1: 818 chars]');
+	t.is(text.slice(spans[1].start, spans[1].end), '[Paste #2: 42 chars]');
+});
+
+test('getPlaceholderSpans returns empty for plain text', t => {
+	t.deepEqual(getPlaceholderSpans('no placeholders here'), []);
+});
+
+test('snapOutOfPlaceholder left snaps to span start', t => {
+	const text = 'hi [Paste #1: 818 chars] bye';
+	// Offset 10 is inside the placeholder (span starts at 3)
+	t.is(snapOutOfPlaceholder(text, 10, 'left'), 3);
+});
+
+test('snapOutOfPlaceholder right snaps to span end', t => {
+	const text = 'hi [Paste #1: 818 chars] bye';
+	t.is(snapOutOfPlaceholder(text, 10, 'right'), 24);
+});
+
+test('snapOutOfPlaceholder nearest picks closer boundary', t => {
+	const text = '[Paste #1: 818 chars]';
+	t.is(snapOutOfPlaceholder(text, 2, 'nearest'), 0);
+	t.is(snapOutOfPlaceholder(text, 19, 'nearest'), 21);
+});
+
+test('snapOutOfPlaceholder leaves boundary and outside offsets alone', t => {
+	const text = 'hi [Paste #1: 818 chars] bye';
+	t.is(snapOutOfPlaceholder(text, 0, 'left'), 0);
+	t.is(snapOutOfPlaceholder(text, 3, 'left'), 3);
+	t.is(snapOutOfPlaceholder(text, 24, 'right'), 24);
+	t.is(snapOutOfPlaceholder(text, 26, 'nearest'), 26);
+});
+
+test('findSpanForBackspace matches cursor at span end or inside', t => {
+	const text = 'hi [Paste #1: 818 chars] bye';
+	const atEnd = findSpanForBackspace(text, 24);
+	t.truthy(atEnd);
+	t.is(atEnd!.start, 3);
+	t.is(atEnd!.end, 24);
+
+	const inside = findSpanForBackspace(text, 10);
+	t.truthy(inside);
+	t.is(inside!.start, 3);
+});
+
+test('findSpanForBackspace returns null outside placeholders', t => {
+	const text = 'hi [Paste #1: 818 chars] bye';
+	t.is(findSpanForBackspace(text, 3), null);
+	t.is(findSpanForBackspace(text, 26), null);
+	t.is(findSpanForBackspace(text, 2), null);
 });

@@ -2,7 +2,7 @@
 	"name": "@nanocollective/nanocoder",
 	"main": "dist/cli.js",
 	"version": "1.28.1",
-	"description": "An open coding agent for your terminal, built by a community collective rather than a company. Bring your own model, keep your code on your machine, and owe nothing to anyone.",
+	"description": "The best Claude Code alternative -- multi-provider agentic coding CLI. Use DeepSeek, Ollama, GLM, or any OpenAI-compatible API with a Claude Code-level harness.",
 	"keywords": [
 		"cli",
 		"ai",
@@ -10,6 +10,10 @@
 		"agent",
 		"ollama",
 		"openrouter",
+		"deepseek",
+		"glm",
+		"claude-code-alternative",
+		"agentic",
 		"local",
 		"typescript",
 		"llama-cpp"
@@ -25,7 +29,7 @@
 		"url": "https://github.com/Nano-Collective/nanocoder/issues"
 	},
 	"bin": {
-		"nanocoder": "dist/cli.js"
+		"omnicode": "dist/cli.js"
 	},
 	"type": "module",
 	"packageManager": "pnpm@11.0.9",
@@ -51,9 +55,11 @@
 		"test:benchmark": "tsx benchmarks/report.ts",
 		"test:benchmark:update": "tsx benchmarks/report.ts --update",
 		"test:benchmark:explain": "tsx benchmarks/report.ts --explain",
+		"changeset": "changeset",
+		"changeset:version": "changeset version && node scripts/normalize-changelog.js",
 		"format": "biome check --write .",
 		"format:check": "biome check .",
-		"build:vscode": "cd plugins/vscode && pnpm run build && pnpm exec vsce package --allow-missing-repository --skip-license --no-dependencies -o ../../assets/nanocoder-vscode.vsix",
+		"build:vscode": "cd plugins/vscode && pnpm run build && pnpm exec vsce package --allow-missing-repository --skip-license --no-dependencies -o ../../assets/omnicode-vscode.vsix",
 		"prepublishOnly": "pnpm run build && pnpm run build:vscode",
 		"generate:system-prompts": "tsx scripts/generate-system-prompts.ts",
 		"prepare": "husky"
@@ -62,14 +68,14 @@
 		"dist",
 		"source/app/prompts/sections",
 		"source/config/themes.json",
-		"assets/nanocoder-vscode.vsix"
+		"assets/omnicode-vscode.vsix"
 	],
 	"dependencies": {
 		"@agentclientprotocol/sdk": "^0.25.0",
 		"@ai-sdk/anthropic": "^3.0.85",
-		"@ai-sdk/google": "^4.0.8",
+		"@ai-sdk/google": "^3.0.43",
 		"@ai-sdk/openai": "^3.0.71",
-		"@ai-sdk/openai-compatible": "3.0.5",
+		"@ai-sdk/openai-compatible": "2.0.51",
 		"@anthropic-ai/tokenizer": "^0.0.4",
 		"@modelcontextprotocol/sdk": "^1.26.0",
 		"@nanocollective/get-md": "^1.6.0",
@@ -106,6 +112,7 @@
 	"devDependencies": {
 		"@ava/typescript": "^7.0.0",
 		"@biomejs/biome": "^2.5.0",
+		"@changesets/cli": "^2.31.0",
 		"@types/node": "^25.9.3",
 		"@types/react": "^19.0.0",
 		"@types/ws": "^8.18.1",
@@ -150,7 +157,8 @@
 	},
 	"c8": {
 		"exclude": [
-			"source/app/App.tsx"
+			"source/app/App.tsx",
+			"source/web/page.ts"
 		],
 		"reporter": [
 			"text",

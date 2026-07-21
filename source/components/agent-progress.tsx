@@ -1,6 +1,7 @@
 import {Box, Text} from 'ink';
 import {useEffect, useReducer} from 'react';
 
+import {ToolCallHeader} from '@/components/simple-tool-formatter';
 import ToolMessage from '@/components/tool-message';
 import {useTheme} from '@/hooks/useTheme';
 import {
@@ -98,10 +99,10 @@ export default function AgentProgress({
 
 	const messageContent = (
 		<Box flexDirection="column">
-			<Text color={colors.tool}>⚒ agent: {subagentName}</Text>
+			<ToolCallHeader toolName="agent" detail={subagentName} />
 
 			<Box flexShrink={1}>
-				<Text wrap="truncate-end" color={colors.primary}>
+				<Text wrap="truncate-end" color={colors.text}>
 					{shortDesc}
 				</Text>
 			</Box>

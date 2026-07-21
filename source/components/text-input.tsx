@@ -1,6 +1,12 @@
 import chalk from 'chalk';
 import {Text, useInput} from 'ink';
 import {useEffect, useRef, useState} from 'react';
+import {useOptionalTheme} from '@/hooks/useTheme';
+import {
+	findSpanForBackspace,
+	getPlaceholderSpans,
+	snapOutOfPlaceholder,
+} from '@/utils/atomic-deletion';
 import {
 	getVisualLineSegments,
 	moveCursorToVisualLine,
@@ -13,6 +19,8 @@ export type Props = {
 	readonly mask?: string;
 	readonly showCursor?: boolean;
 	readonly highlightPastedText?: boolean;
+	readonly slashCommandNames?: readonly string[];
+	readonly slashCommandColor?: string;
 	readonly value: string;
 	readonly onChange: (value: string) => void;
 	readonly onSubmit?: (value: string) => void;
@@ -22,12 +30,33 @@ export type Props = {
 	readonly onEdgeArrow?: (direction: 'up' | 'down') => void;
 };
 
+type TextHighlightRange = {
+	start: number;
+	end: number;
+	color: string;
+	bold?: boolean;
+};
+
+export function getSlashCommandRanges(
+	value: string,
+	validNames?: ReadonlySet<string>,
+): Array<{start: number; end: number}> {
+	const match = value.match(/^\/[A-Za-z0-9][A-Za-z0-9_-]*/);
+	if (!match) return [];
+	const token = match[0];
+	const name = token.slice(1);
+	if (validNames && !validNames.has(name)) return [];
+	return [{start: 0, end: token.length}];
+}
+
 function TextInput({
 	value: originalValue,
 	placeholder = '',
 	focus = true,
 	mask,
 	highlightPastedText = false,
+	slashCommandNames,
+	slashCommandColor,
 	showCursor = true,
 	onChange,
 	onSubmit,
@@ -36,6 +65,7 @@ function TextInput({
 	handleEnter = true,
 	onEdgeArrow,
 }: Props) {
+	const {colors} = useOptionalTheme();
 	const [state, setState] = useState({
 		cursorOffset: (originalValue || '').length,
 		cursorWidth: 0,
@@ -88,7 +118,58 @@ function TextInput({
 
 	const cursorActualWidth = highlightPastedText ? cursorWidth : 0;
 	const value = mask ? mask.repeat(originalValue.length) : originalValue;
-	let renderedValue = value;
+
+	// Paste placeholders render in the theme's primary color so they read as
+	// tokens, not literal text (mask mode never contains the pattern)
+	const placeholderSpans = getPlaceholderSpans(value);
+	const inPlaceholderSpan = (offset: number) =>
+		placeholderSpans.some(span => offset >= span.start && offset < span.end);
+	const validSlashCommandNames =
+		slashCommandNames && slashCommandNames.length > 0
+			? new Set(slashCommandNames)
+			: undefined;
+	const slashCommandRanges =
+		!mask && slashCommandColor
+			? getSlashCommandRanges(originalValue, validSlashCommandNames)
+			: [];
+	const highlightRanges: TextHighlightRange[] = slashCommandRanges.map(
+		range => ({
+			...range,
+			color: slashCommandColor ?? '',
+			bold: true,
+		}),
+	);
+	const getHighlightRange = (offset: number) =>
+		highlightRanges.find(range => offset >= range.start && offset < range.end);
+	const styleInputChar = (char: string, offset: number, inverse = false) => {
+		let styled = char;
+		const highlightRange = getHighlightRange(offset);
+		if (highlightRange) {
+			styled = chalk.hex(highlightRange.color)(styled);
+			if (highlightRange.bold) styled = chalk.bold(styled);
+		}
+		if (inPlaceholderSpan(offset)) {
+			styled = chalk.hex(colors.primary)(styled);
+		}
+		if (inverse) {
+			styled = chalk.inverse(styled);
+		}
+		return styled;
+	};
+	const styleInputSpans = (text: string) => {
+		if (placeholderSpans.length === 0 && highlightRanges.length === 0) {
+			return text;
+		}
+		let styled = '';
+		let offset = 0;
+		for (const char of text) {
+			styled += styleInputChar(char, offset);
+			offset++;
+		}
+		return styled;
+	};
+
+	let renderedValue = styleInputSpans(value);
 	let renderedPlaceholder = placeholder ? chalk.grey(placeholder) : undefined;
 
 	if (showCursor && focus) {
@@ -104,9 +185,11 @@ function TextInput({
 		for (const char of value) {
 			if (i >= cursorOffset - cursorActualWidth && i <= cursorOffset) {
 				renderedValue +=
-					char === '\n' ? chalk.inverse(' ') + '\n' : chalk.inverse(char);
+					char === '\n'
+						? chalk.inverse(' ') + '\n'
+						: styleInputChar(char, i, true);
 			} else {
-				renderedValue += char;
+				renderedValue += styleInputChar(char, i);
 			}
 
 			i++;
@@ -145,8 +228,10 @@ function TextInput({
 					// First/last visual line — hand off to history navigation
 					onEdgeArrow?.(direction);
 				} else {
-					cursorOffsetRef.current = next;
-					setState(s => ({...s, cursorOffset: next}));
+					// Paste placeholders are atomic — never land the cursor inside one
+					const snapped = snapOutOfPlaceholder(val, next, 'nearest');
+					cursorOffsetRef.current = snapped;
+					setState(s => ({...s, cursorOffset: snapped}));
 				}
 				return;
 			}
@@ -171,17 +256,19 @@ function TextInput({
 				if (key.leftArrow) {
 					// Ctrl+Left: jump to start of previous word
 					if (showCursor) {
-						nextCursorOffset = moveToPrevWord(
+						nextCursorOffset = snapOutOfPlaceholder(
 							originalValueRef.current,
-							cursorOffsetRef.current,
+							moveToPrevWord(originalValueRef.current, cursorOffsetRef.current),
+							'left',
 						);
 					}
 				} else if (key.rightArrow) {
 					// Ctrl+Right: jump to end of next word
 					if (showCursor) {
-						nextCursorOffset = moveToNextWord(
+						nextCursorOffset = snapOutOfPlaceholder(
 							originalValueRef.current,
-							cursorOffsetRef.current,
+							moveToNextWord(originalValueRef.current, cursorOffsetRef.current),
+							'right',
 						);
 					}
 				} else {
@@ -202,7 +289,11 @@ function TextInput({
 						case 'b': {
 							// Move cursor back one character
 							if (showCursor) {
-								nextCursorOffset--;
+								nextCursorOffset = snapOutOfPlaceholder(
+									originalValueRef.current,
+									nextCursorOffset - 1,
+									'left',
+								);
 							}
 
 							break;
@@ -211,7 +302,11 @@ function TextInput({
 						case 'f': {
 							// Move cursor forward one character
 							if (showCursor) {
-								nextCursorOffset++;
+								nextCursorOffset = snapOutOfPlaceholder(
+									originalValueRef.current,
+									nextCursorOffset + 1,
+									'right',
+								);
 							}
 
 							break;
@@ -262,31 +357,58 @@ function TextInput({
 				}
 			} else if (key.leftArrow) {
 				if (showCursor) {
-					nextCursorOffset--;
+					// Hop over an adjacent paste placeholder as one unit
+					nextCursorOffset = snapOutOfPlaceholder(
+						originalValueRef.current,
+						nextCursorOffset - 1,
+						'left',
+					);
 				}
 			} else if (key.rightArrow) {
 				if (showCursor) {
-					nextCursorOffset++;
+					nextCursorOffset = snapOutOfPlaceholder(
+						originalValueRef.current,
+						nextCursorOffset + 1,
+						'right',
+					);
 				}
 			} else if (key.backspace || key.delete) {
 				if (cursorOffset > 0) {
-					nextValue =
-						originalValueRef.current.slice(0, cursorOffset - 1) +
-						originalValueRef.current.slice(
-							cursorOffset,
-							originalValueRef.current.length,
-						);
-					nextCursorOffset--;
+					// Backspace at a placeholder boundary consumes the whole placeholder
+					const span = findSpanForBackspace(
+						originalValueRef.current,
+						cursorOffset,
+					);
+					if (span) {
+						nextValue =
+							originalValueRef.current.slice(0, span.start) +
+							originalValueRef.current.slice(span.end);
+						nextCursorOffset = span.start;
+					} else {
+						nextValue =
+							originalValueRef.current.slice(0, cursorOffset - 1) +
+							originalValueRef.current.slice(
+								cursorOffset,
+								originalValueRef.current.length,
+							);
+						nextCursorOffset--;
+					}
 				}
 			} else {
+				// Defensive: never splice typed text into the middle of a placeholder
+				const insertAt = snapOutOfPlaceholder(
+					originalValueRef.current,
+					cursorOffset,
+					'right',
+				);
 				nextValue =
-					originalValueRef.current.slice(0, cursorOffset) +
+					originalValueRef.current.slice(0, insertAt) +
 					input +
 					originalValueRef.current.slice(
-						cursorOffset,
+						insertAt,
 						originalValueRef.current.length,
 					);
-				nextCursorOffset += input.length;
+				nextCursorOffset = insertAt + input.length;
 
 				if (input.length > 1) {
 					nextCursorWidth = input.length;

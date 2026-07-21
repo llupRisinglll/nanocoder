@@ -14,9 +14,11 @@ export const displayError = (
 	error: unknown,
 	keyPrefix: string,
 	addToChatQueue: (component: React.ReactNode) => void,
+	addTransientNotice?: (component: React.ReactNode) => void,
 ): void => {
 	if (error instanceof Error && error.message === 'Operation was cancelled') {
-		addToChatQueue(
+		const addCancellationNotice = addTransientNotice ?? addToChatQueue;
+		addCancellationNotice(
 			<ErrorMessage
 				key={generateKey(keyPrefix)}
 				message="Interrupted by user."

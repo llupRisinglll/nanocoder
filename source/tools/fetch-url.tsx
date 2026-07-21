@@ -3,6 +3,7 @@
 // only users who actually invoke `fetch_url` pay the cost.
 import {Box, Text} from 'ink';
 import React from 'react';
+import {ToolCallHeader} from '@/components/simple-tool-formatter';
 import {DEFAULT_TERMINAL_COLUMNS, MAX_URL_CONTENT_BYTES} from '@/constants';
 import {useTheme} from '@/hooks/useTheme';
 import type {NanocoderToolExport} from '@/types/core';
@@ -97,7 +98,7 @@ function FetchUrlFormatterComponent({
 
 	return (
 		<Box flexDirection="column" marginBottom={1}>
-			<Text color={colors.tool}>⚒ fetch_url</Text>
+			<ToolCallHeader toolName="fetch_url" detail={truncatedUrl} />
 			<Box>
 				<Text color={colors.secondary}>URL: </Text>
 				<Box marginLeft={1}>

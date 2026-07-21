@@ -1,8 +1,15 @@
+import {resolveToCanonical} from '@/tools/tool-aliases';
 import type {ToolCall} from '@/types/index';
 import {generateToolCallId} from '@/utils/tool-call-id';
 
 /**
- * Converts AI SDK tool call format to our ToolCall format
+ * Converts AI SDK tool call format to our ToolCall format.
+ *
+ * The model may call a tool by any of its known aliases (e.g. `Bash` for
+ * `execute_bash`, `apply_patch` for `diff_edit`). We resolve the incoming
+ * `toolName` back to the canonical internal name here, so the rest of the
+ * pipeline (handler dispatch, formatters, validators) always sees the name
+ * it was registered under.
  */
 export function convertAISDKToolCall(toolCall: {
 	toolCallId?: string;
@@ -12,14 +19,15 @@ export function convertAISDKToolCall(toolCall: {
 	return {
 		id: toolCall.toolCallId || generateToolCallId(),
 		function: {
-			name: toolCall.toolName,
+			name: resolveToCanonical(toolCall.toolName),
 			arguments: toolCall.input as Record<string, unknown>,
 		},
 	};
 }
 
 /**
- * Converts multiple AI SDK tool calls to our ToolCall format
+ * Converts multiple AI SDK tool calls to our ToolCall format. Each call's
+ * tool name is resolved from any known alias to the canonical internal name.
  */
 export function convertAISDKToolCalls(
 	toolCalls: Array<{

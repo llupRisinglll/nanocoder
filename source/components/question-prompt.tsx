@@ -1,6 +1,8 @@
 import {Box, Text, useInput} from 'ink';
 import {useRef, useState} from 'react';
 import TextInput from '@/components/text-input';
+import {TitledBoxWithPreferences} from '@/components/ui/titled-box';
+import {getTextboxBackground} from '@/config/themes';
 import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import type {PendingQuestion, QuestionOptionMeta} from '@/utils/question-queue';
@@ -125,12 +127,136 @@ export default function QuestionPrompt({
 		}
 	});
 
+	// Icon style (theme assistantIcon): the question renders as the TITLE of a
+	// rounded titled box (same visual as the welcome Tips box), options inside.
+	// Long questions don't fit a title row — they fall back to a generic title
+	// with the question as the first line of the body.
+	const iconMode = Boolean(colors.assistantIcon);
+	const questionText = ensureString(question.question);
+	const badge = question.questionType
+		? `${TYPE_BADGE[question.questionType]} `
+		: '';
+	const titleFits = badge.length + questionText.length <= boxWidth - 8;
+
+	const body = isFreeformMode ? (
+		<Box flexDirection="column">
+			<Box>
+				<Text color={colors.secondary}>{'> '}</Text>
+				<TextInput
+					value={freeformValue}
+					onChange={setFreeformValue}
+					onSubmit={handleFreeformSubmit}
+				/>
+			</Box>
+			<Box marginTop={1}>
+				<Text color={colors.secondary}>
+					Press Enter to submit, Escape to go back
+				</Text>
+			</Box>
+		</Box>
+	) : (
+		<Box flexDirection="column">
+			{items.map((item, index) => {
+				const isSelected = index === selectedIndex;
+				const isFreeform = item.value === FREEFORM_VALUE;
+				const color = isSelected
+					? colors.primary
+					: isFreeform
+						? colors.secondary
+						: colors.text;
+				const meta = item.meta;
+				// The model controls optionMeta, so pros/cons may arrive as a
+				// string (or anything) rather than an array. Coerce defensively
+				// so a malformed call can't crash the render (.map on a string).
+				const description = meta?.description
+					? ensureString(meta.description)
+					: '';
+				const pros = Array.isArray(meta?.pros)
+					? meta.pros.map(ensureString)
+					: [];
+				const cons = Array.isArray(meta?.cons)
+					? meta.cons.map(ensureString)
+					: [];
+				return (
+					<Box
+						key={item.value}
+						flexDirection="column"
+						width={iconMode ? undefined : boxWidth}
+						marginBottom={1}
+					>
+						<Box flexDirection="row">
+							<Box flexShrink={0} marginRight={1}>
+								<Text color={colors.primary} bold>
+									{isSelected ? '❯' : ' '}
+								</Text>
+							</Box>
+							<Box
+								flexGrow={1}
+								flexShrink={1}
+								flexDirection={isNarrow ? 'column' : 'row'}
+							>
+								<Text wrap="wrap" color={color} bold={isSelected}>
+									{item.label}
+								</Text>
+								{description && (
+									<Text wrap="wrap" italic color={colors.secondary}>
+										{isNarrow ? description : ` — ${description}`}
+									</Text>
+								)}
+							</Box>
+						</Box>
+						{isSelected && (pros.length > 0 || cons.length > 0) && (
+							<Box flexDirection="column" marginLeft={2}>
+								{pros.map(pro => (
+									<Text key={pro} color="green">
+										+ {pro}
+									</Text>
+								))}
+								{cons.map(con => (
+									<Text key={con} color="red">
+										- {con}
+									</Text>
+								))}
+							</Box>
+						)}
+					</Box>
+				);
+			})}
+			<Text color={colors.secondary}>
+				↑/↓ to move · Enter to select · Esc to cancel
+			</Text>
+		</Box>
+	);
+
+	if (iconMode) {
+		return (
+			<Box flexDirection="column" marginBottom={1}>
+				<TitledBoxWithPreferences
+					title={titleFits ? `${badge}${questionText}` : `${badge}Question`}
+					width={boxWidth}
+					borderColor={colors.primary}
+					paddingX={2}
+					paddingY={1}
+					flexDirection="column"
+					marginBottom={1}
+				>
+					{!titleFits && (
+						<Box marginBottom={1}>
+							<Text color={colors.text}>{questionText}</Text>
+						</Box>
+					)}
+					{body}
+				</TitledBoxWithPreferences>
+			</Box>
+		);
+	}
+
 	return (
 		<Box flexDirection="column" marginBottom={1}>
 			<Box
 				flexDirection="row"
 				marginBottom={1}
-				backgroundColor={colors.base}
+				backgroundColor={getTextboxBackground(colors)}
 				width={boxWidth}
 				padding={1}
 				borderStyle="bold"
@@ -148,95 +274,7 @@ export default function QuestionPrompt({
 				<Text color={colors.text}>{ensureString(question.question)}</Text>
 			</Box>
 
-			{isFreeformMode ? (
-				<Box flexDirection="column">
-					<Box>
-						<Text color={colors.secondary}>{'> '}</Text>
-						<TextInput
-							value={freeformValue}
-							onChange={setFreeformValue}
-							onSubmit={handleFreeformSubmit}
-						/>
-					</Box>
-					<Box marginTop={1}>
-						<Text color={colors.secondary}>
-							Press Enter to submit, Escape to go back
-						</Text>
-					</Box>
-				</Box>
-			) : (
-				<Box flexDirection="column">
-					{items.map((item, index) => {
-						const isSelected = index === selectedIndex;
-						const isFreeform = item.value === FREEFORM_VALUE;
-						const color = isSelected
-							? colors.primary
-							: isFreeform
-								? colors.secondary
-								: colors.text;
-						const meta = item.meta;
-						// The model controls optionMeta, so pros/cons may arrive as a
-						// string (or anything) rather than an array. Coerce defensively
-						// so a malformed call can't crash the render (.map on a string).
-						const description = meta?.description
-							? ensureString(meta.description)
-							: '';
-						const pros = Array.isArray(meta?.pros)
-							? meta.pros.map(ensureString)
-							: [];
-						const cons = Array.isArray(meta?.cons)
-							? meta.cons.map(ensureString)
-							: [];
-						return (
-							<Box
-								key={item.value}
-								flexDirection="column"
-								width={boxWidth}
-								marginBottom={1}
-							>
-								<Box flexDirection="row">
-									<Box flexShrink={0} marginRight={1}>
-										<Text color={colors.primary} bold>
-											{isSelected ? '❯' : ' '}
-										</Text>
-									</Box>
-									<Box
-										flexGrow={1}
-										flexShrink={1}
-										flexDirection={isNarrow ? 'column' : 'row'}
-									>
-										<Text wrap="wrap" color={color} bold={isSelected}>
-											{item.label}
-										</Text>
-										{description && (
-											<Text wrap="wrap" italic color={colors.secondary}>
-												{isNarrow ? description : ` — ${description}`}
-											</Text>
-										)}
-									</Box>
-								</Box>
-								{isSelected && (pros.length > 0 || cons.length > 0) && (
-									<Box flexDirection="column" marginLeft={2}>
-										{pros.map(pro => (
-											<Text key={pro} color="green">
-												+ {pro}
-											</Text>
-										))}
-										{cons.map(con => (
-											<Text key={con} color="red">
-												- {con}
-											</Text>
-										))}
-									</Box>
-								)}
-							</Box>
-						);
-					})}
-					<Text color={colors.secondary}>
-						↑/↓ to move · Enter to select · Esc to cancel
-					</Text>
-				</Box>
-			)}
+			{body}
 		</Box>
 	);
 }

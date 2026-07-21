@@ -3,7 +3,7 @@ import {render} from 'ink-testing-library';
 import React from 'react';
 import {themes} from '../config/themes';
 import {ThemeContext} from '../hooks/useTheme';
-import AssistantReasoning from './assistant-reasoning';
+import AssistantReasoning, {ThoughtRunSummary} from './assistant-reasoning';
 
 console.log(`\nassistant-reasoning.spec.tsx – ${React.version}`);
 
@@ -58,6 +58,43 @@ test('AssistantReasoning compacted renders without message', t => {
 	// No token count or message
 	t.notRegex(output!, /Hello world/);
 	t.notRegex(output!, /~\d+ tokens/);
+});
+
+test('AssistantReasoning compacted wraps expand hint in parentheses', t => {
+	const {lastFrame} = render(
+		<MockThemeProvider>
+			<AssistantReasoning reasoning="Hello world" expand={false} />
+		</MockThemeProvider>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /\(ctrl\+r to expand\)/);
+});
+
+test('ThoughtRunSummary renders tools before separate thought line', t => {
+	const {lastFrame} = render(
+		<MockThemeProvider>
+			<ThoughtRunSummary
+				totalMs={2100}
+				toolCounts={{
+					execute_bash: {
+						count: 5,
+						details: ['first command', 'last command'],
+					},
+					write_tasks: 2,
+				}}
+			/>
+		</MockThemeProvider>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /Ran Bash ×5 and TodoWrite ×2/);
+	t.regex(output!, /\(ctrl-o to expand\)/);
+	t.regex(output!, /last command/);
+	t.regex(output!, /Thought for 2s \(ctrl\+r to expand\)/);
+	t.notRegex(output!, /Thought.*Bash/);
 });
 
 test('AssistantReasoning renders with bold text', t => {

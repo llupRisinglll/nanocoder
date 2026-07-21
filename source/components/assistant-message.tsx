@@ -1,5 +1,6 @@
 import {Box, Text} from 'ink';
 import {memo, useMemo} from 'react';
+import {getTextboxBackground} from '@/config/themes';
 import {useNonInteractiveRender} from '@/hooks/useNonInteractiveRender';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
@@ -22,7 +23,7 @@ export function AssistantMessageBox({
 		<Box
 			flexDirection="column"
 			marginBottom={1}
-			backgroundColor={colors.base}
+			backgroundColor={getTextboxBackground(colors)}
 			width={boxWidth}
 			padding={1}
 			borderStyle="bold"
@@ -95,6 +96,23 @@ export default memo(function AssistantMessage({
 		return (
 			<Box flexDirection="column" marginBottom={1}>
 				<Text>{flatText}</Text>
+			</Box>
+		);
+	}
+
+	// Icon style (theme assistantIcon): "🤖 reply" with a hanging indent — no
+	// model header, no box, no token counter.
+	if (colors.assistantIcon) {
+		return (
+			<Box marginTop={1}>
+				<Text color={colors.secondary}>{colors.assistantIcon} </Text>
+				<Box flexDirection="column" flexGrow={1}>
+					{renderedParts.map((part, index) => (
+						<Box key={index} marginBottom={1}>
+							<Text>{part?.content}</Text>
+						</Box>
+					))}
+				</Box>
 			</Box>
 		);
 	}

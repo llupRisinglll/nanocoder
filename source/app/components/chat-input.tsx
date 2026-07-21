@@ -2,6 +2,7 @@ import {Box, Text} from 'ink';
 import Spinner from 'ink-spinner';
 import React from 'react';
 import CancellingIndicator from '@/components/cancelling-indicator';
+import type {DevelopmentModeStatusInfo} from '@/components/development-mode-indicator';
 import QuestionPrompt from '@/components/question-prompt';
 import {TaskListDisplay} from '@/components/task-list-display';
 import ToolConfirmation from '@/components/tool-confirmation';
@@ -20,11 +21,11 @@ import type {
 	ToolCall,
 	TuneConfig,
 } from '@/types';
+import type {CustomCommandCompletionSource} from '@/types/components';
 import type {RestoredInputDraft, SubmittedInputDraft} from '@/types/hooks';
 import type {PendingQuestion} from '@/utils/question-queue';
 import type {PendingToolApproval} from '@/utils/tool-approval-queue';
 import type {PendingToolConfirmation} from '@/utils/tool-confirm-queue';
-import {LiveCompactCounts} from '@/utils/tool-result-display';
 import type {ActiveEditorState} from '@/vscode/vscode-server';
 
 export interface ChatInputProps {
@@ -54,7 +55,7 @@ export interface ChatInputProps {
 	client: unknown | null;
 
 	// Input state
-	customCommands: string[];
+	customCommands: CustomCommandCompletionSource[];
 	inputDisabled: boolean;
 	onSubmittedDraft?: (draft: SubmittedInputDraft) => void;
 	restoreSubmittedDraft?: RestoredInputDraft | null;
@@ -70,7 +71,6 @@ export interface ChatInputProps {
 	sessionName?: string;
 
 	// Tool display
-	compactToolCounts?: Record<string, number> | null;
 	onToggleCompactDisplay?: () => void;
 	compactToolDisplay?: boolean;
 	liveTaskList?: Task[] | null;
@@ -85,6 +85,8 @@ export interface ChatInputProps {
 	onToggleReasoningExpanded: () => void;
 	tune?: TuneConfig;
 	currentModel?: string;
+	statusInfo?: DevelopmentModeStatusInfo;
+	statusLineSlot?: React.ReactNode;
 
 	// VS Code active editor pushed from the extension (filename + optional selection)
 	activeEditor?: ActiveEditorState | null;
@@ -128,7 +130,6 @@ export function ChatInput({
 	contextPercentUsed,
 	contextSource,
 	sessionName,
-	compactToolCounts,
 	onToggleCompactDisplay,
 	compactToolDisplay,
 	liveTaskList,
@@ -137,6 +138,8 @@ export function ChatInput({
 	onToggleReasoningExpanded,
 	tune,
 	currentModel,
+	statusInfo,
+	statusLineSlot,
 	activeEditor,
 	onDismissActiveEditor,
 }: ChatInputProps): React.ReactElement {
@@ -149,12 +152,7 @@ export function ChatInput({
 		activeToolCall.function.name !== 'agent';
 
 	return (
-		<Box flexDirection="column" marginLeft={-1}>
-			{/* Live compact tool counts - running tally during auto-execution */}
-			{compactToolCounts && Object.keys(compactToolCounts).length > 0 && (
-				<LiveCompactCounts counts={compactToolCounts} />
-			)}
-
+		<Box flexDirection="column">
 			{/* Live task list - updates in-place below tool counts, above spinner */}
 			{liveTaskList && liveTaskList.length > 0 && (
 				<TaskListDisplay tasks={liveTaskList} title="Tasks" />
@@ -192,31 +190,35 @@ export function ChatInput({
 				/>
 			) : /* User Input */
 			mcpInitialized && client ? (
-				<UserInput
-					customCommands={customCommands}
-					onSubmit={(msg, display, images) =>
-						void onSubmit(msg, display, images)
-					}
-					onSubmittedDraft={onSubmittedDraft}
-					restoreSubmittedDraft={restoreSubmittedDraft}
-					onQueueMessage={onQueueMessage}
-					queuedMessages={queuedMessages}
-					onRemoveQueuedMessage={onRemoveQueuedMessage}
-					disabled={inputDisabled && !isBusy}
-					isBusy={isBusy}
-					onToggleMode={onToggleMode}
-					onToggleReasoningExpanded={onToggleReasoningExpanded}
-					onToggleCompactDisplay={onToggleCompactDisplay}
-					compactToolDisplay={compactToolDisplay}
-					developmentMode={developmentMode}
-					contextPercentUsed={contextPercentUsed}
-					contextSource={contextSource}
-					sessionName={sessionName}
-					tune={tune}
-					currentModel={currentModel}
-					activeEditor={activeEditor}
-					onDismissActiveEditor={onDismissActiveEditor}
-				/>
+				<>
+					<UserInput
+						customCommands={customCommands}
+						onSubmit={(msg, display, images) =>
+							void onSubmit(msg, display, images)
+						}
+						onSubmittedDraft={onSubmittedDraft}
+						restoreSubmittedDraft={restoreSubmittedDraft}
+						onQueueMessage={onQueueMessage}
+						queuedMessages={queuedMessages}
+						onRemoveQueuedMessage={onRemoveQueuedMessage}
+						disabled={inputDisabled && !isBusy}
+						isBusy={isBusy}
+						onToggleMode={onToggleMode}
+						onToggleReasoningExpanded={onToggleReasoningExpanded}
+						onToggleCompactDisplay={onToggleCompactDisplay}
+						compactToolDisplay={compactToolDisplay}
+						developmentMode={developmentMode}
+						contextPercentUsed={contextPercentUsed}
+						contextSource={contextSource}
+						sessionName={sessionName}
+						tune={tune}
+						currentModel={currentModel}
+						statusInfo={statusInfo}
+						statusLineSlot={statusLineSlot}
+						activeEditor={activeEditor}
+						onDismissActiveEditor={onDismissActiveEditor}
+					/>
+				</>
 			) : /* Client Missing */
 			mcpInitialized && !client ? (
 				<></>

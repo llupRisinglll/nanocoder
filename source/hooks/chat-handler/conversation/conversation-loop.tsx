@@ -1,8 +1,15 @@
 import React from 'react';
 import type {ConversationStateManager} from '@/app/utils/conversation-state';
 import AssistantMessage from '@/components/assistant-message';
-import AssistantReasoning from '@/components/assistant-reasoning';
-import {ErrorMessage, InfoMessage} from '@/components/message-box';
+import AssistantReasoning, {
+	getReasoningStartTime,
+	ThoughtRunSummary,
+} from '@/components/assistant-reasoning';
+import {
+	CompletionMessage,
+	ErrorMessage,
+	InfoMessage,
+} from '@/components/message-box';
 import {getAppConfig} from '@/config/index';
 import {
 	MAX_COMPACT_RETRIES,
@@ -41,7 +48,10 @@ import {getLastBuiltPrompt} from '@/utils/prompt-builder';
 import {calculateTokens} from '@/utils/token-calculator';
 import {createCancellationResults} from '@/utils/tool-cancellation';
 import {signalToolConfirm} from '@/utils/tool-confirm-queue';
-import {displayCompactCountsSummary} from '@/utils/tool-result-display';
+import {
+	type CompactToolActivityMap,
+	displayCompactCountsSummary,
+} from '@/utils/tool-result-display';
 import {closeAllDiffsInVSCode} from '@/vscode/index';
 import {filterValidToolCalls} from '../utils/tool-filters';
 import {computeToolCallSignature} from '../utils/tool-signature';
@@ -80,9 +90,13 @@ interface ProcessAssistantResponseParams {
 	onConversationComplete?: () => void;
 	conversationStartTime?: number;
 	reasoningExpandedRef?: React.RefObject<boolean>;
+	// Whether the active theme defines assistantIcon (currently only
+	// omnicode). See useAppState's iconThemeRef for why this is threaded as a
+	// live ref instead of read via config's disk-cached getColors().
+	iconThemeRef?: React.RefObject<boolean>;
 	compactToolDisplayRef?: React.RefObject<boolean>;
-	onSetCompactToolCounts?: (counts: Record<string, number> | null) => void;
-	compactToolCountsRef?: React.MutableRefObject<Record<string, number>>;
+	onSetCompactToolCounts?: (counts: CompactToolActivityMap | null) => void;
+	compactToolCountsRef?: React.MutableRefObject<CompactToolActivityMap>;
 	onSetLiveTaskList?: (tasks: Task[] | null) => void;
 	setLiveComponent?: (component: React.ReactNode) => void;
 	// Records the API-reported usage of the latest response (or null to clear
@@ -136,6 +150,22 @@ export const resetLastTurnHadReasoning = () => {
 	lastTurnHadReasoning = false;
 };
 
+// Omnicode-only: accumulates consecutive collapsed Thought headers into one
+// merged "Thought for Ns" run. Populated only when the active theme defines
+// assistantIcon and reasoning is collapsed (reasoningExpandedRef is falsy);
+// every other theme/state pushes AssistantReasoning per turn as before, so
+// this stays zeroed and inert for them. Flushed (see flushCompactCounts
+// below) at the same points the compact tool-count tally already flushes,
+// merging any tool tally that directly follows onto the same line.
+let pendingThoughtMs = 0;
+let pendingThoughtCount = 0;
+
+/** Reset the pending-thought accumulator (for testing). */
+export const resetPendingThoughtAccumulator = () => {
+	pendingThoughtMs = 0;
+	pendingThoughtCount = 0;
+};
+
 /**
  * Main conversation loop that processes assistant responses and handles tool calls.
  * This function orchestrates the entire conversation flow including:
@@ -168,6 +198,7 @@ export const processAssistantResponse = async (
 		onConversationComplete,
 		conversationStartTime,
 		reasoningExpandedRef,
+		iconThemeRef,
 		compactToolDisplayRef,
 		onSetCompactToolCounts,
 		compactToolCountsRef,
@@ -214,15 +245,38 @@ export const processAssistantResponse = async (
 	// Indents the summary when the previous turn emitted reasoning (so the
 	// summary groups beneath that Thought); renders flat otherwise so the
 	// block doesn't look orphaned for non-thinking models.
+	//
+	// Omnicode: if a collapsed Thought run is pending (see pendingThoughtMs
+	// above), it and any accumulated tool tally that directly followed it
+	// merge into ONE grey "Thought for Ns, tallied tools" line instead of two
+	// separate lines — Claude-Code style. Every other theme never populates
+	// pendingThoughtMs, so this branch is dead for them and the classic
+	// CompactCountsSummaryBlock path below is unchanged.
 	const flushCompactCounts = () => {
-		if (compactToolCountsRef) {
-			const counts = compactToolCountsRef.current;
-			if (Object.keys(counts).length > 0) {
-				displayCompactCountsSummary(counts, addToChatQueue, {
-					indent: lastTurnHadReasoning,
-				});
-				compactToolCountsRef.current = {};
-			}
+		const counts = compactToolCountsRef?.current ?? {};
+		const hasToolCounts = Object.keys(counts).length > 0;
+
+		if (pendingThoughtCount > 0) {
+			addToChatQueue(
+				<ThoughtRunSummary
+					key={generateKey('thought-run-summary')}
+					totalMs={pendingThoughtMs}
+					toolCounts={hasToolCounts ? counts : undefined}
+					toolCountsExpanded={!(compactToolDisplayRef?.current ?? true)}
+				/>,
+			);
+			pendingThoughtMs = 0;
+			pendingThoughtCount = 0;
+			if (compactToolCountsRef) compactToolCountsRef.current = {};
+			onSetCompactToolCounts?.(null);
+			return;
+		}
+
+		if (hasToolCounts && compactToolCountsRef) {
+			displayCompactCountsSummary(counts, addToChatQueue, {
+				indent: lastTurnHadReasoning,
+			});
+			compactToolCountsRef.current = {};
 		}
 		onSetCompactToolCounts?.(null);
 	};
@@ -463,6 +517,28 @@ export const processAssistantResponse = async (
 	// context-usage figure doesn't count this turn's text twice.
 	setTokenCount(0);
 
+	// Omnicode + collapsed: accumulate THIS turn's thinking duration into the
+	// pending run before the narrative-text flush check below, so a turn that
+	// thinks-then-answers in one shot merges its own reasoning with any
+	// leftover thought from a preceding tool-only turn (no assistant text
+	// separates them — merged into one line by flushCompactCounts). Must run
+	// before the flush check, not after: accumulating afterward would let the
+	// flush fire on the OLD pending total and leave this turn's own reasoning
+	// to flush on its own at the natural-end, producing two summary lines
+	// instead of one. Classic themes / expanded reasoning push
+	// AssistantReasoning at its original spot below, after the flush check,
+	// completely unaffected by this reordering.
+	const omnicodeCollapsedReasoning =
+		Boolean(fullReasoning) &&
+		(iconThemeRef?.current ?? false) &&
+		!(reasoningExpandedRef?.current ?? false);
+	if (omnicodeCollapsedReasoning) {
+		const reasoningStart = getReasoningStartTime() ?? Date.now();
+		pendingThoughtMs += Math.max(0, Date.now() - reasoningStart);
+		pendingThoughtCount += 1;
+		lastTurnHadReasoning = true;
+	}
+
 	// Flush accumulated compact counts ONLY when this turn emits narrative
 	// text — a natural break in a run of tool calls. Reasoning alone does NOT
 	// break the run: thinking models emit reasoning on every turn, and agentic
@@ -475,7 +551,7 @@ export const processAssistantResponse = async (
 	if (cleanedContent.trim()) {
 		await flushAll();
 	}
-	if (fullReasoning) {
+	if (fullReasoning && !omnicodeCollapsedReasoning) {
 		// Despite reasoning stream typically finishing before text stream,
 		// reasoning is still added to chat queue here to give correct
 		// message order with regards to tool calling
@@ -613,6 +689,8 @@ export const processAssistantResponse = async (
 				inputTokens: usage.inputTokens,
 				outputTokens: usage.outputTokens,
 				totalTokens: usage.totalTokens,
+				cacheReadInputTokens: usage.cacheReadInputTokens,
+				cacheWriteInputTokens: usage.cacheWriteInputTokens,
 				timestamp: Date.now(),
 			});
 		}
@@ -748,10 +826,31 @@ export const processAssistantResponse = async (
 		// tool renders identically however it was approved.
 		const displayOptions = {
 			compactDisplay: compactToolDisplayRef?.current,
-			onCompactToolCount: (toolName: string) => {
+			onCompactToolCount: (
+				toolName: string,
+				detail?: string | string[],
+				failed?: boolean,
+			) => {
 				if (compactToolCountsRef) {
 					const counts = compactToolCountsRef.current;
-					counts[toolName] = (counts[toolName] ?? 0) + 1;
+					const key = failed ? `${toolName}:failed` : toolName;
+					const current = counts[key] ?? {count: 0, failed};
+					const currentActivity =
+						typeof current === 'number' ? {count: current} : current;
+					const nextDetails = Array.isArray(detail)
+						? detail
+						: detail
+							? [detail]
+							: [];
+					counts[key] = {
+						count: currentActivity.count + 1,
+						detail: nextDetails[0] ?? currentActivity.detail,
+						details:
+							nextDetails.length > 0
+								? [...(currentActivity.details ?? []), ...nextDetails]
+								: currentActivity.details,
+						failed: failed ?? currentActivity.failed,
+					};
 					onSetCompactToolCounts?.({...counts});
 				}
 			},
@@ -761,7 +860,29 @@ export const processAssistantResponse = async (
 					onSetLiveTaskList?.(tasks);
 				});
 			},
+			onRunningToolCounts: (runningCounts: CompactToolActivityMap | null) => {
+				if (!onSetCompactToolCounts) return;
+				const completedCounts = compactToolCountsRef?.current ?? {};
+				if (!runningCounts) {
+					onSetCompactToolCounts(
+						Object.keys(completedCounts).length > 0
+							? {...completedCounts}
+							: null,
+					);
+					return;
+				}
+				const visibleCounts: CompactToolActivityMap = {...completedCounts};
+				for (const [toolName, value] of Object.entries(runningCounts)) {
+					visibleCounts[`${toolName}:running`] = value;
+				}
+				onSetCompactToolCounts(visibleCounts);
+			},
 			nonInteractiveMode,
+			onBeforeDetailedToolLine: flushCompactCounts,
+			iconTheme: iconThemeRef?.current ?? false,
+			// The omnicode output preview under detailed tool lines shares
+			// reasoning's ctrl+r toggle: read live per display call.
+			previewExpandedRef: reasoningExpandedRef,
 		};
 
 		const turnResults: ToolResult[] = [];
@@ -1053,11 +1174,11 @@ export const processAssistantResponse = async (
 		const adjective = getRandomAdjective();
 		const elapsed = formatElapsedTime(startTime);
 		addToChatQueue(
-			<InfoMessage
+			<CompletionMessage
 				key={generateKey('completion-time')}
 				message={`Worked for a ${adjective} ${elapsed}.`}
-				hideBox={true}
-				marginBottom={2}
+				model={currentModel}
+				tokens={calculateTokens(cleanedContent)}
 			/>,
 		);
 		onConversationComplete?.();

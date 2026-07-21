@@ -96,3 +96,38 @@ export function WarningMessage(props: SpecificMessageProps) {
 export function InfoMessage(props: SpecificMessageProps) {
 	return <MessageBox type="info" {...props} />;
 }
+
+// End-of-turn "Worked for …" line. Themes with an assistantIcon (omnicode)
+// get a compact neutral line hugging the reply, with model and token count;
+// classic themes keep the original InfoMessage rendering.
+export function CompletionMessage({
+	message,
+	model,
+	tokens,
+}: {
+	message: string;
+	model?: string;
+	tokens?: number;
+}) {
+	const {colors} = useTheme();
+
+	if (!colors.assistantIcon) {
+		return <InfoMessage message={message} hideBox={true} marginBottom={2} />;
+	}
+
+	const details = [
+		model,
+		tokens !== undefined ? `~${tokens.toLocaleString()} tokens` : undefined,
+	]
+		.filter(Boolean)
+		.join(' · ');
+
+	return (
+		<Box paddingLeft={2} marginBottom={1}>
+			<Text color={colors.secondary}>
+				{message}
+				{details ? ` · ${details}` : ''}
+			</Text>
+		</Box>
+	);
+}

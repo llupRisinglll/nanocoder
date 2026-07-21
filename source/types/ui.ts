@@ -8,13 +8,30 @@ export interface Colors {
 	error: string;
 	info: string;
 	warning: string;
-	// Diff highlight colors
+	// Diff highlight colors (line-level)
 	diffAdded: string;
 	diffRemoved: string;
 	diffAddedText: string;
 	diffRemovedText: string;
-	// Gradient colors (optional)
+	// Diff highlight colors (word-level, more intense than line-level)
+	diffAddedWord: string;
+	diffRemovedWord: string;
+	// Gradient colors (optional) — legacy palette metadata; NOT consumed by the
+	// welcome banner (several stock themes define it)
 	gradientColors?: string[];
+	// Welcome-banner gradient override (optional); two identical stops render
+	// the banner as a solid color. Absent = classic [primary, tool] gradient.
+	bannerGradient?: string[];
+	// Text-box background override (optional): 'none' renders boxes on the
+	// terminal's own background instead of colors.base
+	textboxBackground?: string;
+	// Assistant icon (optional): when set, assistant replies render as
+	// "<icon> text" with a hanging indent instead of the "model:" boxed block
+	assistantIcon?: string;
+	// Prompt character (optional): when set, the input and user messages render
+	// as "<char> content" inside a rounded, borderless-fill box instead of the
+	// left-border + "You:" block style
+	promptChar?: string;
 }
 
 export interface Theme {
@@ -25,6 +42,7 @@ export interface Theme {
 }
 
 export type ThemePreset =
+	| 'omnicode'
 	| 'tokyo-night'
 	| 'synthwave-84'
 	| 'forest-night'
@@ -88,4 +106,5 @@ export type NanocoderShape =
 	| '3d'
 	| 'simple3d'
 	| 'chrome'
-	| 'huge';
+	| 'huge'
+	| 'fork';

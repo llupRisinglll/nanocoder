@@ -12,6 +12,7 @@ import {listDirectoryTool} from '@/tools/list-directory';
 import {getDiagnosticsTool} from '@/tools/lsp-get-diagnostics';
 import {readFileTool} from '@/tools/read-file';
 import {searchFileContentsTool} from '@/tools/search-file-contents';
+import {skillTool} from '@/tools/skill';
 import {checkSkillTool} from '@/tools/skill-check';
 import {writeTasksTool} from '@/tools/tasks';
 import {webSearchTool} from '@/tools/web-search';
@@ -37,7 +38,8 @@ const staticTools: NanocoderToolExport[] = [
 	...getFileOpTools(),
 	// Task management tool
 	writeTasksTool,
-	// Skill authoring linter
+	// Skill loader + authoring linter
+	skillTool,
 	checkSkillTool,
 ];
 

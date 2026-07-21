@@ -74,9 +74,118 @@ test('renders tool calls as compact summaries paired with results', t => {
 
 	const output = renderHistory(messages);
 
-	t.regex(output, /read_file/);
+	t.regex(output, /Read/);
 	t.regex(output, /source\/config\/index\.ts/);
 	t.notRegex(output, /failed/);
+});
+
+test('renders a single historical bash call inline with its command', t => {
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			tool_calls: [
+				{
+					id: 'call_1',
+					function: {
+						name: 'execute_bash',
+						arguments: {command: 'cd /tmp/project && npm test'},
+					},
+				},
+			],
+		},
+		{role: 'tool', tool_call_id: 'call_1', name: 'execute_bash', content: 'ok'},
+	];
+
+	const output = renderHistory(messages);
+
+	t.regex(output, /Bash\(cd \/tmp\/project && npm test\)/);
+	t.notRegex(output, /└ cd \/tmp\/project/);
+	t.notRegex(output, /×1/);
+});
+
+test('collapses repeated historical tool calls by name', t => {
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			reasoning: 'checking worktrees',
+			tool_calls: [
+				{
+					id: 'call_1',
+					function: {name: 'execute_bash', arguments: {command: 'git status'}},
+				},
+			],
+		},
+		{role: 'tool', tool_call_id: 'call_1', name: 'execute_bash', content: 'ok'},
+		{
+			role: 'assistant',
+			content: '',
+			reasoning: 'checking another repo',
+			tool_calls: [
+				{
+					id: 'call_2',
+					function: {name: 'execute_bash', arguments: {command: 'docker ps'}},
+				},
+				{
+					id: 'call_3',
+					function: {name: 'execute_bash', arguments: {command: 'ls'}},
+				},
+			],
+		},
+		{role: 'tool', tool_call_id: 'call_2', name: 'execute_bash', content: 'ok'},
+		{role: 'tool', tool_call_id: 'call_3', name: 'execute_bash', content: 'ok'},
+	];
+
+	const output = renderHistory(messages);
+
+	t.regex(output, /Bash ×3/);
+	t.regex(output, /└ ls/);
+	t.regex(output, /… \+2 more commands \(ctrl \+ o to verbose\)/);
+	t.regex(output, /Thought\s+\(ctrl\+r to expand\)/);
+	t.notRegex(output, /Thought ×/);
+	t.notRegex(output, /docker ps/);
+});
+
+test('combines mixed historical tool groups into one header with latest hint', t => {
+	const toolCalls = [
+		...Array.from({length: 5}, (_, index) => ({
+			id: `bash_${index}`,
+			function: {
+				name: 'execute_bash',
+				arguments: {command: `echo bash ${index}`},
+			},
+		})),
+		...Array.from({length: 2}, (_, index) => ({
+			id: `tasks_${index}`,
+			function: {
+				name: 'write_tasks',
+				arguments: {tasks: `tasks ${index}`},
+			},
+		})),
+	];
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			reasoning: 'checking',
+			tool_calls: toolCalls,
+		},
+		...toolCalls.map(toolCall => ({
+			role: 'tool' as const,
+			tool_call_id: toolCall.id,
+			name: toolCall.function.name,
+			content: 'ok',
+		})),
+	];
+
+	const output = renderHistory(messages);
+
+	t.regex(output, /Ran Bash ×5 and TodoWrite ×2/);
+	t.regex(output, /└ tasks/);
+	t.regex(output, /… \+1 more call \(ctrl \+ o to verbose\)/);
+	t.regex(output, /Thought\s+\(ctrl\+r to expand\)/);
+	t.notRegex(output, /echo bash 0/);
 });
 
 test('marks failed tool calls', t => {
@@ -101,8 +210,9 @@ test('marks failed tool calls', t => {
 
 	const output = renderHistory(messages);
 
-	t.regex(output, /execute_bash/);
+	t.regex(output, /Bash/);
 	t.regex(output, /failed/);
+	t.regex(output, /ls \/nope/);
 });
 
 test('truncates long histories and notes hidden messages', t => {

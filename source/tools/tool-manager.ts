@@ -408,6 +408,10 @@ export class ToolManager {
 		return this.mcpClient?.getServerInfo(serverName);
 	}
 
+	getMCPInstructions(): Array<{name: string; instructions: string}> {
+		return this.mcpClient?.getInstructions() ?? [];
+	}
+
 	getMCPClient() {
 		return this.mcpClient;
 	}

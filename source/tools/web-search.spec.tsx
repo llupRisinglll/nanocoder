@@ -224,7 +224,7 @@ test('webSearchFormatter renders with query', t => {
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /web_search/);
+	t.regex(output!, /web_search\(test search\)/);
 	t.regex(output!, /test search/);
 	t.regex(output!, /Brave Search API/);
 });

@@ -12,6 +12,7 @@ import {
 	getKeyGeneratorSessionId,
 	setKeyGeneratorSessionId,
 } from '@/session/key-generator';
+import {sessionManager, type Session} from '@/session/session-manager';
 import {clearAppConfig} from '@/config/index';
 import {resetPreferencesCache} from '@/config/preferences';
 
@@ -372,6 +373,39 @@ test('enterSessionSelectorMode forwards showAll=true when requested', t => {
 
 	t.deepEqual(spies.setShowAllSessions.calls, [[true]]);
 	t.deepEqual(spies.setActiveMode.calls, [['sessionSelector']]);
+});
+
+test.serial('handleSessionSelect shows resumed session title and id', async t => {
+	const session: Session = {
+		id: '12345678-1234-4234-9234-123456789abc',
+		title: 'Design review',
+		createdAt: new Date().toISOString(),
+		lastAccessedAt: new Date().toISOString(),
+		messageCount: 0,
+		provider: 'openai-compatible',
+		model: 'mock-model',
+		workingDirectory: '/tmp',
+		messages: [],
+	};
+	const origLoad = sessionManager.loadSession.bind(sessionManager);
+	sessionManager.loadSession = async (sessionId: string) =>
+		sessionId === session.id ? session : null;
+
+	try {
+		const {handlers, spies} = setup();
+		await handlers.handleSessionSelect(session.id);
+
+		const resumeNotice = spies.addToChatQueue.calls.at(-1)?.[0] as
+			| React.ReactElement<{message?: string}>
+			| undefined;
+		t.is(
+			resumeNotice?.props.message,
+			`Resumed session: ${session.id} (${session.title})`,
+		);
+		t.deepEqual(spies.setCurrentSessionId.calls, [[session.id]]);
+	} finally {
+		sessionManager.loadSession = origLoad;
+	}
 });
 
 test('clearMessages resets key generator session ID', async t => {

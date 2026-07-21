@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import {PendingChange, FileChangeMessage} from './protocol';
 
 // Custom URI scheme for virtual documents (won't trigger linters)
-const DIFF_SCHEME = 'nanocoder-diff';
+const DIFF_SCHEME = 'omnicode-diff';
 
 /**
  * Content provider for virtual diff documents
@@ -155,7 +155,7 @@ export class DiffManager {
 		this.openEditors.set(id, [originalUri, modifiedUri]);
 
 		// Open diff editor with preserveFocus to avoid stealing terminal focus
-		const title = `Nanocoder: ${fileName} (${change.toolName})`;
+		const title = `Omnicode: ${fileName} (${change.toolName})`;
 		await vscode.commands.executeCommand(
 			'vscode.diff',
 			originalUri,
