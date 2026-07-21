@@ -117,7 +117,7 @@ print_help() {
 			          SHA-ancestry failure with a MERGED PR is an INFO note,
 			          because upstream squash-merges)
 			      (c) README differences-table rows vs branch reality
-			      (d) origin/main contains every rc/*+fork/* tip
+			      (d) origin/main contains every rc/*+fork/* change set
 			      (e) fork/omnicode-identity README drift (best-effort)
 			      (f) fork main not behind upstream/main (ships of
 			          freshly-rebased branches conflict until synced)
@@ -139,11 +139,13 @@ print_help() {
 			  2. gate: the branch's merge-base with upstream/main must be
 			     in origin/main (a branch rebased onto an upstream tip fork
 			     main lacks aborts -> run 'merged <pr>' / sync main first)
-			  3. gate: mergeability probe (git merge-tree) -- conflicts
+			  3. if origin/main already contains patch-equivalent changes,
+			     exit cleanly without modifying the branch or creating a PR
+			  4. gate: mergeability probe (git merge-tree) -- conflicts
 			     abort with the file list BEFORE any PR is created
-			  4. confirm, then gh pr create -R llupRisinglll/omnicode
-			  5. confirm, then gh pr merge --merge (keep branch)
-			  6. pull --ff-only + pnpm run build in the main checkout
+			  5. confirm, then gh pr create -R llupRisinglll/omnicode
+			  6. confirm, then gh pr merge --merge (keep branch)
+			  7. pull --ff-only + pnpm run build in the main checkout
 			     (--no-build skips the rebuild)
 
 			Examples:
@@ -330,6 +332,17 @@ update_main_checkout() {
 # is tag $1 an ancestor-or-equal of ref $2?
 tag_reaches() {
 	git merge-base --is-ancestor "$1" "$2" 2>/dev/null
+}
+
+patch_reaches_main() {
+	local branch="$1"
+	if tag_reaches "$branch" "origin/main"; then
+		return 0
+	fi
+	# Clean rc/* branches are intentionally rebased onto upstream/main for
+	# upstream PRs. After dogfood shipping, fork main may contain equivalent
+	# patches through different merge/cherry-pick SHAs. Treat that as shipped.
+	! git cherry "origin/main" "$branch" 2>/dev/null | grep -q '^+'
 }
 
 branch_exists() {
@@ -600,16 +613,20 @@ cmd_status() {
 	done
 	[ "$ok_c" -eq 1 ] && echo "PASS (c): README differences table matches branch reality."
 
-	# (d) main contains every rc/*+fork/* tip (rebuild invariant).
+	# (d) main contains every rc/*+fork/* change set (dogfood invariant).
+	# This is deliberately patch-equivalence based, not tip-ancestry based.
+	# rc/* branches must stay clean for upstream PRs, usually based on
+	# upstream/main; merging fork main back into an rc/* branch pollutes the
+	# upstream PR with fork-only history.
 	local ok_d=1
 	for i in "${!B_NAME[@]}"; do
 		branch="${B_NAME[$i]}"
-		if ! tag_reaches "$branch" "origin/main"; then
-			echo "WARN (d): '$branch' tip is NOT an ancestor of origin/main (rebuild invariant broken)."
+		if ! patch_reaches_main "$branch"; then
+			echo "WARN (d): '$branch' has patches not present in origin/main (dogfood invariant broken)."
 			ok_d=0
 		fi
 	done
-	[ "$ok_d" -eq 1 ] && echo "PASS (d): main contains every rc/*+fork/* tip."
+	[ "$ok_d" -eq 1 ] && echo "PASS (d): main contains every rc/*+fork/* change set."
 
 	# (e) fork/omnicode-identity not behind main on docs files (best-effort).
 	if branch_exists "fork/omnicode-identity"; then
@@ -704,6 +721,12 @@ cmd_ship() {
 		die "branch is based on upstream commits fork main doesn't have -- run 'fork-flow.sh merged <pr>' (or sync main from upstream) first, then ship."
 	fi
 	echo "    OK: branch base $(git rev-parse --short "$mb") is in origin/main."
+
+	if patch_reaches_main "$branch"; then
+		echo "    OK: '$branch' changes are already present in origin/main."
+		update_main_checkout
+		return 0
+	fi
 
 	# Gate: cheap mergeability probe BEFORE any PR exists. Modern git
 	# (>= 2.38): 'merge-tree --write-tree' exits 1 on conflicts and, with
