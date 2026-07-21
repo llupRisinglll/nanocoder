@@ -262,6 +262,7 @@ export const processAssistantResponse = async (
 					key={generateKey('thought-run-summary')}
 					totalMs={pendingThoughtMs}
 					toolCounts={hasToolCounts ? counts : undefined}
+					toolCountsExpanded={!(compactToolDisplayRef?.current ?? true)}
 				/>,
 			);
 			pendingThoughtMs = 0;
@@ -839,6 +840,9 @@ export const processAssistantResponse = async (
 					counts[key] = {
 						count: currentActivity.count + 1,
 						detail: detail ?? currentActivity.detail,
+						details: detail
+							? [...(currentActivity.details ?? []), detail]
+							: currentActivity.details,
 						failed: failed ?? currentActivity.failed,
 					};
 					onSetCompactToolCounts?.({...counts});
@@ -850,7 +854,23 @@ export const processAssistantResponse = async (
 					onSetLiveTaskList?.(tasks);
 				});
 			},
-			onRunningToolCounts: onSetCompactToolCounts,
+			onRunningToolCounts: (runningCounts: CompactToolActivityMap | null) => {
+				if (!onSetCompactToolCounts) return;
+				const completedCounts = compactToolCountsRef?.current ?? {};
+				if (!runningCounts) {
+					onSetCompactToolCounts(
+						Object.keys(completedCounts).length > 0
+							? {...completedCounts}
+							: null,
+					);
+					return;
+				}
+				const visibleCounts: CompactToolActivityMap = {...completedCounts};
+				for (const [toolName, value] of Object.entries(runningCounts)) {
+					visibleCounts[`${toolName}:running`] = value;
+				}
+				onSetCompactToolCounts(visibleCounts);
+			},
 			nonInteractiveMode,
 			onBeforeDetailedToolLine: flushCompactCounts,
 			iconTheme: iconThemeRef?.current ?? false,

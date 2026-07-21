@@ -77,7 +77,13 @@ test('ThoughtRunSummary renders tools before separate thought line', t => {
 		<MockThemeProvider>
 			<ThoughtRunSummary
 				totalMs={2100}
-				toolCounts={{execute_bash: 5, write_tasks: 2}}
+				toolCounts={{
+					execute_bash: {
+						count: 5,
+						details: ['first command', 'last command'],
+					},
+					write_tasks: 2,
+				}}
 			/>
 		</MockThemeProvider>,
 	);
@@ -85,6 +91,8 @@ test('ThoughtRunSummary renders tools before separate thought line', t => {
 	const output = lastFrame();
 	t.truthy(output);
 	t.regex(output!, /Ran Bash ×5 and TodoWrite ×2/);
+	t.regex(output!, /\(ctrl-o to expand\)/);
+	t.regex(output!, /last command/);
 	t.regex(output!, /Thought for 2s \(ctrl\+r to expand\)/);
 	t.notRegex(output!, /Thought.*Bash/);
 });

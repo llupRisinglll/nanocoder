@@ -12,12 +12,24 @@ import {EventEmitter} from 'node:events';
  */
 
 export type WheelDirection = 'up' | 'down';
+export interface MouseClick {
+	x: number;
+	y: number;
+}
+export interface MousePointer {
+	x: number;
+	y: number;
+}
 
 /** Singleton bus: cli.tsx publishes wheel ticks, ChatHistory subscribes. */
 export const wheelEvents = new EventEmitter();
+/** Singleton bus for primary-clicks stripped from stdin. */
+export const clickEvents = new EventEmitter();
+/** Singleton bus for pointer movement stripped from stdin. */
+export const pointerEvents = new EventEmitter();
 
 // ESC [ < button ; column ; row, terminated by M (press) or m (release).
-const SGR_MOUSE_RE = /\x1b\[<(\d+);\d+;\d+[Mm]/g;
+const SGR_MOUSE_RE = /\x1b\[<(\d+);(\d+);(\d+)([Mm])/g;
 
 // Trailing partial mouse sequence cut off at a chunk boundary. Requires
 // the full "ESC [ <" prefix: a lone ESC is the Escape KEY and a bare
@@ -32,6 +44,10 @@ export interface StripResult {
 	clean: string;
 	/** Wheel ticks found, in order. */
 	wheel: WheelDirection[];
+	/** Primary-button click presses found, in order. */
+	clicks: MouseClick[];
+	/** Pointer move events found, in order. */
+	pointers: MousePointer[];
 	/**
 	 * Trailing bytes that might be the start of a mouse sequence split
 	 * across chunks — prepend to the next chunk before stripping again.
@@ -47,16 +63,31 @@ export interface StripResult {
 export function stripMouseSequences(chunk: string, prefix = ''): StripResult {
 	const input = prefix + chunk;
 	const wheel: WheelDirection[] = [];
+	const clicks: MouseClick[] = [];
+	const pointers: MousePointer[] = [];
 
-	let clean = input.replace(SGR_MOUSE_RE, (_match, buttonStr: string) => {
-		const button = Number(buttonStr);
-		// Bit 64 marks wheel events; low two bits pick the direction.
-		if (button & 64) {
-			const direction = button & 1 ? 'down' : 'up';
-			wheel.push(direction);
-		}
-		return '';
-	});
+	let clean = input.replace(
+		SGR_MOUSE_RE,
+		(
+			_match,
+			buttonStr: string,
+			xStr: string,
+			yStr: string,
+			eventType: string,
+		) => {
+			const button = Number(buttonStr);
+			// Bit 64 marks wheel events; low two bits pick the direction.
+			if (button & 64) {
+				const direction = button & 1 ? 'down' : 'up';
+				wheel.push(direction);
+			} else if (eventType === 'M' && button === 35) {
+				pointers.push({x: Number(xStr), y: Number(yStr)});
+			} else if (eventType === 'M' && (button & 3) === 0) {
+				clicks.push({x: Number(xStr), y: Number(yStr)});
+			}
+			return '';
+		},
+	);
 
 	// Hold back a trailing partial sequence for the next chunk. Only a
 	// short tail can be a genuine partial — longer means it's not a mouse
@@ -68,5 +99,5 @@ export function stripMouseSequences(chunk: string, prefix = ''): StripResult {
 		clean = clean.slice(0, clean.length - carry.length);
 	}
 
-	return {clean, wheel, carry};
+	return {clean, wheel, clicks, pointers, carry};
 }

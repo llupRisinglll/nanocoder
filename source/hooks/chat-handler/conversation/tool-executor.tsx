@@ -222,7 +222,11 @@ export const displayExecutedTool = async (
 					iconDisplay,
 				);
 			} else {
-				options.onCompactToolCount?.(result.name, undefined, true);
+				options.onCompactToolCount?.(
+					result.name,
+					compactToolDetail?.detail,
+					true,
+				);
 			}
 		} else if (options.nonInteractiveMode) {
 			await displayToolResult(
@@ -246,7 +250,7 @@ export const displayExecutedTool = async (
 		} else if (isDetailedOmnicodeOp) {
 			options.onCompactToolCount?.(result.name, compactToolDetail?.detail);
 		} else {
-			options.onCompactToolCount?.(result.name);
+			options.onCompactToolCount?.(result.name, compactToolDetail?.detail);
 		}
 	} else if (result.name === 'execute_bash' && bashState) {
 		// Expanded mode: render the completed BashProgress (command +
@@ -571,15 +575,25 @@ export const executeToolsDirectly = async (
 
 	const showRunningGroup = (group: ToolCall[]) => {
 		if (!options?.compactDisplay || !options.onRunningToolCounts) return;
-		if (options.nonInteractiveMode || group.length <= 1) return;
+		if (options.nonInteractiveMode || group.length === 0) return;
 
 		const counts: CompactToolActivityMap = {};
 		for (const toolCall of group) {
 			const toolName = toolCall.function.name;
 			const current = counts[toolName];
-			const count =
-				typeof current === 'number' ? current : (current?.count ?? 0);
-			counts[toolName] = {count: count + 1, running: true};
+			const currentActivity =
+				typeof current === 'number' ? {count: current} : current;
+			const detail = getCompactToolDetail(
+				toolName,
+				toolCall.function.arguments,
+			)?.detail;
+			counts[toolName] = {
+				count: (currentActivity?.count ?? 0) + 1,
+				details: detail
+					? [...(currentActivity?.details ?? []), detail]
+					: currentActivity?.details,
+				running: true,
+			};
 		}
 		options.onRunningToolCounts(counts);
 	};
@@ -628,7 +642,7 @@ export const executeToolsDirectly = async (
 			continue;
 		}
 
-		if (type === 'readOnly' && group.length > 1) {
+		if (type === 'readOnly' && (group.length > 1 || options?.compactDisplay)) {
 			// Parallel execution for consecutive read-only tools
 			showRunningGroup(group);
 			try {

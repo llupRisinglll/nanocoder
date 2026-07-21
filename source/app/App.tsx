@@ -48,7 +48,11 @@ import {createPinoLogger} from '@/utils/logging/pino-logger';
 import {setGlobalMessageQueue} from '@/utils/message-queue';
 import {setNotificationsConfig} from '@/utils/notifications';
 import {getShutdownManager} from '@/utils/shutdown';
-import {LiveCompactCounts} from '@/utils/tool-result-display';
+import {pointerEvents} from '@/utils/terminal-mouse';
+import {
+	getLiveCompactToolExpandHitboxColumns,
+	LiveCompactCounts,
+} from '@/utils/tool-result-display';
 import {isExtensionInstalled} from '@/vscode/extension-installer';
 
 export default function App({
@@ -82,6 +86,8 @@ export default function App({
 
 	// Use extracted hooks
 	const appState = useAppState(initialDevelopmentMode);
+	const [compactExpandHintHovered, setCompactExpandHintHovered] =
+		React.useState(false);
 	const userMessageQueue = useUserMessageQueue();
 	const queuedUserSubmitRef = React.useRef<
 		| ((
@@ -732,22 +738,50 @@ export default function App({
 	const showAssistantReasoning =
 		chatHandler.streamingReasoning && chatHandler.streamingContent;
 
-	const runningCompactCounts =
+	const liveCompactCounts =
 		appState.compactToolCounts &&
-		Object.values(appState.compactToolCounts).some(value =>
-			typeof value === 'number' ? false : value.running,
-		) ? (
-			<LiveCompactCounts counts={appState.compactToolCounts} />
+		Object.keys(appState.compactToolCounts).length > 0 ? (
+			<LiveCompactCounts
+				counts={appState.compactToolCounts}
+				expanded={!appState.compactToolDisplay}
+				expandHintHovered={compactExpandHintHovered}
+			/>
 		) : null;
 
-	const liveComponent =
-		appState.liveComponent ??
-		(chatHandler.isGenerating &&
-		(chatHandler.streamingContent ||
-			chatHandler.streamingReasoning ||
-			runningCompactCounts) ? (
+	React.useEffect(() => {
+		const counts = appState.compactToolCounts;
+		if (!altScreenActive || !counts || Object.keys(counts).length === 0) {
+			setCompactExpandHintHovered(false);
+			return;
+		}
+
+		const hitbox = getLiveCompactToolExpandHitboxColumns(
+			counts,
+			!appState.compactToolDisplay,
+		);
+		if (!hitbox) return;
+
+		const onPointer = ({x}: {x: number; y: number}) => {
+			// Stock Ink does not expose rendered row coordinates. This keeps the
+			// affordance precise horizontally and leaves ctrl-o as the exact
+			// keyboard fallback in non-mouse terminals.
+			setCompactExpandHintHovered(x >= hitbox.start && x <= hitbox.end);
+		};
+
+		pointerEvents.on('pointer', onPointer);
+		return () => {
+			pointerEvents.off('pointer', onPointer);
+		};
+	}, [
+		altScreenActive,
+		appState.compactToolCounts,
+		appState.compactToolDisplay,
+	]);
+
+	const streamingLiveComponent =
+		chatHandler.isGenerating &&
+		(chatHandler.streamingContent || chatHandler.streamingReasoning) ? (
 			<>
-				{runningCompactCounts}
 				{chatHandler.streamingReasoning && !chatHandler.streamingContent && (
 					<StreamingReasoning
 						reasoning={chatHandler.streamingReasoning}
@@ -770,7 +804,16 @@ export default function App({
 					/>
 				)}
 			</>
-		) : null);
+		) : null;
+
+	const liveComponent =
+		liveCompactCounts || appState.liveComponent || streamingLiveComponent ? (
+			<>
+				{liveCompactCounts}
+				{!liveCompactCounts && appState.liveComponent}
+				{streamingLiveComponent}
+			</>
+		) : null;
 
 	// Non-interactive render tree — minimal transcript + one status line,
 	// no interactive affordances.

@@ -10,6 +10,7 @@ import {
 	LiveCompactCounts,
 	displayCompactCountsSummary,
 	displayToolResult,
+	getLiveCompactToolExpandHitboxColumns,
 } from './tool-result-display.js';
 
 // ============================================================================
@@ -190,8 +191,8 @@ test('LiveCompactCounts renders running state and groups failed tools', t => {
 	);
 
 	const output = lastFrame()!;
-	t.regex(output, /^⚒\s+Running WebFetch ×10 failed/);
-	t.notRegex(output, /Ran WebFetch/);
+	t.regex(output, /^⚒\s+Ran WebFetch ×10 failed \(running\) \(ctrl-o to expand\)/);
+	t.notRegex(output, /Running WebFetch/);
 	unmount();
 });
 
@@ -690,7 +691,8 @@ test('LiveCompactCounts - renders tool counts', t => {
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /Running Read ×3 and Grep ×2/);
+	t.regex(output!, /Ran Read ×3 and Grep ×2 \(running\)/);
+	t.regex(output!, /\(ctrl-o to expand\)/);
 	unmount();
 });
 
@@ -722,20 +724,134 @@ test('LiveCompactCounts - collapses repeated detailed calls to multiplier', t =>
 	unmount();
 });
 
-test('LiveCompactCounts - ignores completed compact counts', t => {
+test('LiveCompactCounts - merges completed and running compact counts', t => {
 	const {lastFrame, unmount} = renderWithTheme(
 		<LiveCompactCounts
 			counts={{
-				ask_user: {count: 1},
-				execute_bash: {count: 3, running: true},
+				execute_bash: {count: 2},
+				'execute_bash:running': {
+					count: 1,
+					details: ['gh repo list llupRisinglll --limit 100 --json name'],
+					running: true,
+				},
 			}}
 		/>,
 	);
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /Running Bash ×3/);
-	t.notRegex(output!, /AskUserQuestion/);
+	t.regex(output!, /Ran Bash ×3 \(running\)/);
+	t.regex(output!, /\(ctrl-o to expand\)/);
+	t.regex(output!, /└\s+gh repo list llupRisinglll --limit 100 --json name/);
+	t.notRegex(output!, /source\/app\/App\.tsx/);
+	t.notRegex(output!, /Running Bash/);
+	unmount();
+});
+
+test('LiveCompactCounts - truncates grouped running details and reports hidden commands', t => {
+	const {lastFrame, unmount} = renderWithTheme(
+		<LiveCompactCounts
+			counts={{
+				execute_bash: {
+					count: 5,
+					details: [
+						'command one',
+						'command two',
+						'command three',
+						'command four',
+						'command five',
+					],
+					running: true,
+				},
+			}}
+		/>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /Ran Bash ×5 \(running\)/);
+	t.notRegex(output!, /command one/);
+	t.regex(output!, /command three/);
+	t.regex(output!, /command four/);
+	t.regex(output!, /command five/);
+	t.regex(output!, /… \+2 more commands/);
+	unmount();
+});
+
+test('LiveCompactCounts - expanded mode shows all grouped details', t => {
+	const {lastFrame, unmount} = renderWithTheme(
+		<LiveCompactCounts
+			expanded={true}
+			counts={{
+				execute_bash: {
+					count: 4,
+					details: ['command one', 'command two', 'command three', 'command four'],
+					running: true,
+				},
+			}}
+		/>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /command one/);
+	t.regex(output!, /command four/);
+	t.notRegex(output!, /more commands/);
+	t.regex(output!, /\(ctrl-o to collapse\)/);
+	unmount();
+});
+
+test('LiveCompactCounts - hover highlights expand hint', t => {
+	const {lastFrame, unmount} = renderWithTheme(
+		<LiveCompactCounts
+			expandHintHovered={true}
+			counts={{
+				execute_bash: {count: 2, details: ['command one'], running: true},
+			}}
+		/>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /\(ctrl-o to expand\)/);
+	unmount();
+});
+
+test('getLiveCompactToolExpandHitboxColumns returns visible hint columns', t => {
+	const hitbox = getLiveCompactToolExpandHitboxColumns(
+		{
+			execute_bash: {count: 2, running: true},
+		},
+		false,
+	);
+
+	t.truthy(hitbox);
+	t.true(hitbox!.start > '⚒  Ran Bash ×2 (running)'.length);
+	t.is(hitbox!.end - hitbox!.start + 1, '(ctrl-o to expand)'.length);
+});
+
+test('displayCompactCountsSummary - keeps safe compact details below summary', t => {
+	const components: React.ReactNode[] = [];
+	displayCompactCountsSummary(
+		{
+			execute_bash: {
+				count: 2,
+				details: ['first command', 'last command'],
+			},
+		},
+		component => {
+			components.push(component);
+		},
+		{expanded: true, indent: false},
+	);
+
+	const {lastFrame, unmount} = renderWithTheme(<>{components}</>);
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /Ran Bash ×2/);
+	t.regex(output!, /\(ctrl-o to collapse\)/);
+	t.regex(output!, /└\s+first command/);
+	t.regex(output!, /last command/);
 	unmount();
 });
 
@@ -763,7 +879,7 @@ test('LiveCompactCounts - renders a single hammer for grouped entries', t => {
 	t.truthy(output);
 	const hammerCount = (output!.match(/\u2692/g) || []).length;
 	t.is(hammerCount, 1);
-	t.regex(output!, /Running Read and Bash ×2/);
+	t.regex(output!, /Ran Read and Bash ×2 \(running\)/);
 	unmount();
 });
 

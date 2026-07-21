@@ -32,6 +32,7 @@ export const LIVE_TASK_TOOLS = new Set(['write_tasks']);
 export interface CompactToolActivity {
 	count: number;
 	detail?: string;
+	details?: string[];
 	failed?: boolean;
 	running?: boolean;
 }
@@ -47,11 +48,40 @@ function normalizeCompactToolEntries(
 	counts: CompactToolCountsInput,
 ): Array<[string, CompactToolActivity]> {
 	return Object.entries(counts).map(([toolName, value]) => [
-		toolName.endsWith(':failed')
-			? toolName.slice(0, -':failed'.length)
-			: toolName,
+		toolName.endsWith(':running')
+			? toolName.slice(0, -':running'.length)
+			: toolName.endsWith(':failed')
+				? toolName.slice(0, -':failed'.length)
+				: toolName,
 		typeof value === 'number' ? {count: value} : value,
 	]);
+}
+
+function mergeCompactToolEntries(
+	entries: Array<[string, CompactToolActivity]>,
+): {
+	entries: Array<[string, CompactToolActivity]>;
+	hasRunning: boolean;
+} {
+	let hasRunning = false;
+	const mergedEntries = Array.from(
+		entries
+			.reduce((merged, [toolName, activity]) => {
+				hasRunning ||= Boolean(activity.running);
+				const current = merged.get(toolName);
+				merged.set(toolName, {
+					count: (current?.count ?? 0) + activity.count,
+					detail: current?.detail ?? activity.detail,
+					details: [...(current?.details ?? []), ...(activity.details ?? [])],
+					failed: current?.failed ?? activity.failed,
+					running: current?.running || activity.running,
+				});
+				return merged;
+			}, new Map<string, CompactToolActivity>())
+			.entries(),
+	);
+
+	return {entries: mergedEntries, hasRunning};
 }
 
 function getCompactDisplayToolName(toolName: string): string {
@@ -111,6 +141,50 @@ function formatGroupedToolEntries(
 		);
 	}
 	return nodes;
+}
+
+function formatToolNameWithCountText(
+	toolName: string,
+	activity: CompactToolActivity,
+): string {
+	let text = getCompactDisplayToolName(toolName);
+	if (activity.count > 1) text += ` ×${activity.count}`;
+	if (activity.failed) text += ' failed';
+	return text;
+}
+
+function formatGroupedToolEntriesText(
+	entries: Array<[string, CompactToolActivity]>,
+): string {
+	return entries
+		.map(([toolName, activity]) =>
+			formatToolNameWithCountText(toolName, activity),
+		)
+		.reduce((text, part, index) => {
+			if (index === 0) return part;
+			if (index === entries.length - 1) return `${text} and ${part}`;
+			return `${text}, ${part}`;
+		}, '');
+}
+
+export function getCompactToolCountsHeaderText(
+	entries: Array<[string, number | CompactToolActivity]>,
+	running = false,
+): string {
+	const normalizedEntries = entries.map(([toolName, value]) => [
+		toolName,
+		typeof value === 'number' ? {count: value} : value,
+	]) as Array<[string, CompactToolActivity]>;
+	const singleInline =
+		normalizedEntries.length === 1 &&
+		normalizedEntries[0]?.[1].count === 1 &&
+		normalizedEntries[0]?.[1].detail;
+
+	if (singleInline) {
+		return `⚒  ${formatToolNameWithCountText(normalizedEntries[0][0], normalizedEntries[0][1])}(${truncateDetail(normalizedEntries[0][1].detail ?? '')})`;
+	}
+
+	return `⚒  ${running ? 'Running ' : 'Ran '}${formatGroupedToolEntriesText(normalizedEntries)}`;
 }
 
 function ToolNameWithCount({
@@ -179,6 +253,72 @@ export function CompactToolCountsLine({
 function truncateDetail(value: string, max = 80): string {
 	const single = value.replace(/\s+/g, ' ').trim();
 	return single.length > max ? `${single.slice(0, max - 1)}…` : single;
+}
+
+function compactRunningDetailLines(
+	entries: Array<[string, CompactToolActivity]>,
+	options?: {runningOnly?: boolean; expanded?: boolean},
+	maxLines = 3,
+): {
+	lines: string[];
+	hiddenCount: number;
+} {
+	const seen = new Set<string>();
+	const lines: string[] = [];
+	for (const [, activity] of entries) {
+		if (options?.runningOnly && !activity.running) continue;
+		for (const detail of activity.details ?? []) {
+			const normalized = truncateDetail(detail, 110);
+			if (!normalized || seen.has(normalized)) continue;
+			seen.add(normalized);
+			lines.push(normalized);
+		}
+	}
+
+	const displayed = options?.expanded ? lines : lines.slice(-maxLines);
+	return {
+		lines: displayed,
+		hiddenCount: Math.max(0, lines.length - displayed.length),
+	};
+}
+
+export function getCompactToolExpandHintText(expanded: boolean): string {
+	return `(ctrl-o to ${expanded ? 'collapse' : 'expand'})`;
+}
+
+export function getLiveCompactToolExpandHitboxColumns(
+	counts: CompactToolCountsInput,
+	expanded = false,
+): {start: number; end: number} | null {
+	const normalizedEntries = normalizeCompactToolEntries(counts);
+	if (normalizedEntries.length === 0) return null;
+	const {entries, hasRunning} = mergeCompactToolEntries(normalizedEntries);
+	const headerText = getCompactToolCountsHeaderText(entries);
+	const runningText = hasRunning ? ' (running)' : '';
+	const start = headerText.length + runningText.length + 2;
+	return {
+		start,
+		end: start + getCompactToolExpandHintText(expanded).length - 1,
+	};
+}
+
+function CompactToolExpandHint({
+	expanded,
+	hovered = false,
+}: {
+	expanded: boolean;
+	hovered?: boolean;
+}) {
+	const {colors} = useTheme();
+	return (
+		<Text
+			color={hovered ? colors.text : colors.secondary}
+			backgroundColor={hovered ? colors.secondary : undefined}
+		>
+			{' '}
+			{getCompactToolExpandHintText(expanded)}
+		</Text>
+	);
 }
 
 /**
@@ -483,15 +623,48 @@ export function getGroupedCompactDescription(
  * Shows accumulated counts during execution (e.g. "⚒ read_file ×7").
  * Rendered in the live area (not Static) so it updates in-place.
  */
-export function LiveCompactCounts({counts}: {counts: CompactToolCountsInput}) {
-	const entries = normalizeCompactToolEntries(counts).filter(
-		([, activity]) => activity.running,
-	);
+export function LiveCompactCounts({
+	counts,
+	expanded = false,
+	expandHintHovered = false,
+}: {
+	counts: CompactToolCountsInput;
+	expanded?: boolean;
+	expandHintHovered?: boolean;
+}) {
+	const entries = normalizeCompactToolEntries(counts);
+	const {entries: mergedEntries, hasRunning} = mergeCompactToolEntries(entries);
+	const {colors} = useTheme();
+	const detailPreview = compactRunningDetailLines(mergedEntries, {
+		expanded,
+		runningOnly: hasRunning,
+	});
 
 	return (
 		<Box flexDirection="column" marginBottom={1}>
-			{entries.length > 0 && (
-				<CompactToolCountsLine entries={entries} running={true} />
+			{mergedEntries.length > 0 && (
+				<Text>
+					<CompactToolCountsLine entries={mergedEntries} />
+					{hasRunning && <Text color={colors.secondary}> (running)</Text>}
+					<CompactToolExpandHint
+						expanded={expanded}
+						hovered={expandHintHovered}
+					/>
+				</Text>
+			)}
+			{detailPreview.lines.map((line, index) => (
+				<Text key={`${index}-${line.slice(0, 24)}`}>
+					<Text color={colors.secondary}>
+						{index === 0 ? '  └  ' : '     '}
+					</Text>
+					<Text color={colors.text}>{line}</Text>
+				</Text>
+			))}
+			{detailPreview.hiddenCount > 0 && (
+				<Text color={colors.secondary}>
+					{'     '}… +{detailPreview.hiddenCount} more command
+					{detailPreview.hiddenCount === 1 ? '' : 's'}
+				</Text>
 			)}
 		</Box>
 	);
@@ -504,7 +677,7 @@ export function LiveCompactCounts({counts}: {counts: CompactToolCountsInput}) {
 export function displayCompactCountsSummary(
 	counts: CompactToolCountsInput,
 	addToChatQueue: (component: React.ReactNode) => void,
-	options?: {indent?: boolean},
+	options?: {indent?: boolean; expanded?: boolean},
 ): void {
 	const entries = normalizeCompactToolEntries(counts);
 	if (entries.length === 0) return;
@@ -515,9 +688,10 @@ export function displayCompactCountsSummary(
 	// groups.
 	const indent = options?.indent ?? true;
 	addToChatQueue(
-		<CompactCountsSummaryBlock
+		<CompactToolCountsSummaryBlock
 			key={generateKey('tool-compact-summary')}
 			entries={entries}
+			expanded={options?.expanded ?? false}
 			indent={indent}
 		/>,
 	);
@@ -526,21 +700,52 @@ export function displayCompactCountsSummary(
 // Rendered as a component so it can read the theme: icon-style themes
 // (assistantIcon set) keep tool tallies flush left instead of grouping them
 // under a Thought header with an indent.
-function CompactCountsSummaryBlock({
+export function CompactToolCountsSummaryBlock({
+	expanded,
 	entries,
 	indent,
+	expandHintHovered = false,
 }: {
-	entries: Array<[string, CompactToolActivity]>;
+	expanded: boolean;
+	entries: Array<[string, number | CompactToolActivity]>;
 	indent: boolean;
+	expandHintHovered?: boolean;
 }) {
 	const {colors} = useTheme();
+	const normalizedEntries = entries.map(([toolName, value]) => [
+		toolName,
+		typeof value === 'number' ? {count: value} : value,
+	]) as Array<[string, CompactToolActivity]>;
+	const detailPreview = compactRunningDetailLines(normalizedEntries, {
+		expanded,
+	});
 	return (
 		<Box
 			flexDirection="column"
 			marginLeft={indent && !colors.assistantIcon ? 2 : 0}
 			marginBottom={1}
 		>
-			<CompactToolCountsLine entries={entries} />
+			<Text>
+				<CompactToolCountsLine entries={entries} />
+				<CompactToolExpandHint
+					expanded={expanded}
+					hovered={expandHintHovered}
+				/>
+			</Text>
+			{detailPreview.lines.map((line, index) => (
+				<Text key={`${index}-${line.slice(0, 24)}`}>
+					<Text color={colors.secondary}>
+						{index === 0 ? '  └  ' : '     '}
+					</Text>
+					<Text color={colors.text}>{line}</Text>
+				</Text>
+			))}
+			{detailPreview.hiddenCount > 0 && (
+				<Text color={colors.secondary}>
+					{'     '}… +{detailPreview.hiddenCount} more command
+					{detailPreview.hiddenCount === 1 ? '' : 's'}
+				</Text>
+			)}
 		</Box>
 	);
 }
