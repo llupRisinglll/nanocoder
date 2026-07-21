@@ -19,6 +19,9 @@
 #                              tagging. --body-file is REQUIRED (this script
 #                              never writes PR prose).
 #
+#   dogfood <branch>            Mark the current branch tip as already tested
+#                              on fork main via dogfood/<branch>.
+#
 #   merged <pr-num>            Post-upstream-merge ritual: retag
 #                              pr-<num>-merged, merge upstream/main into fork
 #                              main (confirmed), pull + rebuild.
@@ -90,7 +93,7 @@ die() {
 }
 
 usage_line() {
-	echo "Usage: $0 [status|ship|upstream|merged|depend|undepend|help] [args] [--dry-run] [--no-build] [--body-file <f>]"
+	echo "Usage: $0 [status|ship|upstream|dogfood|merged|depend|undepend|help] [args] [--dry-run] [--no-build] [--body-file <f>]"
 }
 
 # Usage error -> exit 2.
@@ -179,6 +182,24 @@ print_help() {
 			  scripts/fork-flow.sh upstream rc/indicators --body-file body.md
 			EOF
 			;;
+		dogfood)
+			cat <<-'EOF'
+			fork-flow.sh dogfood <branch> [--dry-run]
+
+			Records that fork main already contains and has tested the branch's
+			current change set, even when the fork-main implementation is an
+			Omnicode-adapted version that is not patch-identical to the clean
+			upstream PR branch. Creates and pushes tag dogfood/<branch> at the
+			branch's current tip. If the branch advances, status will warn until
+			you ship or dogfood the new tip.
+
+			Use this for clean rc/* branches after their behavior is already
+			present in fork main, especially when direct merging would pollute
+			the upstream PR branch or conflict with fork-only UI work.
+
+			Example:  scripts/fork-flow.sh dogfood rc/statusline
+			EOF
+			;;
 		merged)
 			cat <<-'EOF'
 			fork-flow.sh merged <pr-num> [--no-build] [--dry-run]
@@ -231,6 +252,7 @@ print_help() {
 			  status                              consistency dashboard (default, read-only)
 			  ship <branch>                       branch -> fork main (PR + merge + rebuild)
 			  upstream <rc-branch> --body-file <f>  gated upstream PR + pr-<num> tag
+			  dogfood <branch>                    mark branch tip tested on fork main
 			  merged <pr-num>                     post-merge ritual (retag + sync + rebuild)
 			  depend <branch> <required-branch>   tag a branch dependency
 			  undepend <branch> <required-branch> remove a branch dependency tag
@@ -343,6 +365,17 @@ patch_reaches_main() {
 	# upstream PRs. After dogfood shipping, fork main may contain equivalent
 	# patches through different merge/cherry-pick SHAs. Treat that as shipped.
 	! git cherry "origin/main" "$branch" 2>/dev/null | grep -q '^+'
+}
+
+dogfood_tag() {
+	echo "dogfood/$1"
+}
+
+dogfood_reaches_branch() {
+	local branch="$1" tag
+	tag="$(dogfood_tag "$branch")"
+	git rev-parse --verify --quiet "$tag" >/dev/null &&
+		git merge-base --is-ancestor "$tag" "$branch" 2>/dev/null
 }
 
 branch_exists() {
@@ -489,6 +522,9 @@ cmd_status() {
 				tags="${tags:+$tags,}$t"
 			fi
 		done
+		if dogfood_reaches_branch "$branch"; then
+			tags="${tags:+$tags,}dogfood"
+		fi
 		[ -n "$tags" ] || tags="-"
 
 		pr=$(open_upstream_pr "$branch")
@@ -621,7 +657,7 @@ cmd_status() {
 	local ok_d=1
 	for i in "${!B_NAME[@]}"; do
 		branch="${B_NAME[$i]}"
-		if ! patch_reaches_main "$branch"; then
+		if ! patch_reaches_main "$branch" && ! dogfood_reaches_branch "$branch"; then
 			echo "WARN (d): '$branch' has patches not present in origin/main (dogfood invariant broken)."
 			ok_d=0
 		fi
@@ -727,6 +763,11 @@ cmd_ship() {
 		update_main_checkout
 		return 0
 	fi
+	if dogfood_reaches_branch "$branch"; then
+		echo "    OK: '$branch' is already marked dogfooded on fork main."
+		update_main_checkout
+		return 0
+	fi
 
 	# Gate: cheap mergeability probe BEFORE any PR exists. Modern git
 	# (>= 2.38): 'merge-tree --write-tree' exits 1 on conflicts and, with
@@ -782,6 +823,38 @@ cmd_ship() {
 	run gh pr merge "$pr_num" -R "$FORK_REPO" --merge
 
 	update_main_checkout
+}
+
+# ---------------------------------------------------------------------------
+# dogfood <branch>
+# ---------------------------------------------------------------------------
+
+cmd_dogfood() {
+	local branch="$1"
+	require_tooling
+	require_branch "$branch"
+
+	git fetch origin --quiet
+	git rev-parse --verify --quiet "origin/$branch" >/dev/null \
+		|| die "branch '$branch' is not pushed to origin."
+	[ "$(git rev-parse "$branch")" = "$(git rev-parse "origin/$branch")" ] \
+		|| die "branch '$branch' has diverged from origin/$branch -- push or reconcile first."
+
+	local tag
+	tag="$(dogfood_tag "$branch")"
+
+	confirm "Mark '$branch' as dogfooded on fork main via tag '$tag'?" || {
+		echo "Aborted -- nothing changed."
+		return 0
+	}
+
+	if git rev-parse --verify --quiet "$tag" >/dev/null; then
+		run git tag -f "$tag" "$branch"
+	else
+		run git tag "$tag" "$branch"
+	fi
+	run git push --force-with-lease origin "refs/tags/$tag"
+	echo "Marked '$branch' as dogfooded at $(git rev-parse --short "$branch")."
 }
 
 # ---------------------------------------------------------------------------
@@ -1100,6 +1173,10 @@ case "$CMD" in
 	upstream)
 		[ -n "$ARG1" ] || die_usage "upstream requires <rc-branch> (plus --body-file <f>)."
 		cmd_upstream "$ARG1"
+		;;
+	dogfood)
+		[ -n "$ARG1" ] || die_usage "dogfood requires <branch>."
+		cmd_dogfood "$ARG1"
 		;;
 	merged)
 		[ -n "$ARG1" ] || die_usage "merged requires <pr-num>."
