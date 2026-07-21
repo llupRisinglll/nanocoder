@@ -472,7 +472,6 @@ export function InteractiveApp({
 								contextPercentUsed={appState.contextPercentUsed}
 								contextSource={appState.contextSource}
 								sessionName={appState.sessionName || undefined}
-								compactToolCounts={appState.compactToolCounts}
 								compactToolDisplay={appState.compactToolDisplay}
 								liveTaskList={appState.liveTaskList}
 								onToggleCompactDisplay={handleToggleCompactDisplay}

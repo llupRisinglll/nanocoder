@@ -33,6 +33,7 @@ export interface CompactToolActivity {
 	count: number;
 	detail?: string;
 	failed?: boolean;
+	running?: boolean;
 }
 
 export type CompactToolActivityMap = Record<
@@ -483,7 +484,9 @@ export function getGroupedCompactDescription(
  * Rendered in the live area (not Static) so it updates in-place.
  */
 export function LiveCompactCounts({counts}: {counts: CompactToolCountsInput}) {
-	const entries = normalizeCompactToolEntries(counts);
+	const entries = normalizeCompactToolEntries(counts).filter(
+		([, activity]) => activity.running,
+	);
 
 	return (
 		<Box flexDirection="column" marginBottom={1}>

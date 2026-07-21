@@ -26,10 +26,6 @@ import type {RestoredInputDraft, SubmittedInputDraft} from '@/types/hooks';
 import type {PendingQuestion} from '@/utils/question-queue';
 import type {PendingToolApproval} from '@/utils/tool-approval-queue';
 import type {PendingToolConfirmation} from '@/utils/tool-confirm-queue';
-import {
-	type CompactToolActivityMap,
-	LiveCompactCounts,
-} from '@/utils/tool-result-display';
 import type {ActiveEditorState} from '@/vscode/vscode-server';
 
 export interface ChatInputProps {
@@ -75,7 +71,6 @@ export interface ChatInputProps {
 	sessionName?: string;
 
 	// Tool display
-	compactToolCounts?: CompactToolActivityMap | null;
 	onToggleCompactDisplay?: () => void;
 	compactToolDisplay?: boolean;
 	liveTaskList?: Task[] | null;
@@ -135,7 +130,6 @@ export function ChatInput({
 	contextPercentUsed,
 	contextSource,
 	sessionName,
-	compactToolCounts,
 	onToggleCompactDisplay,
 	compactToolDisplay,
 	liveTaskList,
@@ -159,11 +153,6 @@ export function ChatInput({
 
 	return (
 		<Box flexDirection="column">
-			{/* Live compact tool counts - running tally during auto-execution */}
-			{compactToolCounts && Object.keys(compactToolCounts).length > 0 && (
-				<LiveCompactCounts counts={compactToolCounts} />
-			)}
-
 			{/* Live task list - updates in-place below tool counts, above spinner */}
 			{liveTaskList && liveTaskList.length > 0 && (
 				<TaskListDisplay tasks={liveTaskList} title="Tasks" />

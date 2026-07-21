@@ -184,7 +184,7 @@ test('LiveCompactCounts renders running state and groups failed tools', t => {
 	const {lastFrame, unmount} = renderWithTheme(
 		<LiveCompactCounts
 			counts={{
-				fetch_url: {count: 10, failed: true},
+				fetch_url: {count: 10, failed: true, running: true},
 			}}
 		/>,
 	);
@@ -680,7 +680,12 @@ test('displayCompactCountsSummary - handles empty counts', t => {
 
 test('LiveCompactCounts - renders tool counts', t => {
 	const {lastFrame, unmount} = renderWithTheme(
-		<LiveCompactCounts counts={{read_file: 3, search_file_contents: 2}} />,
+		<LiveCompactCounts
+			counts={{
+				read_file: {count: 3, running: true},
+				search_file_contents: {count: 2, running: true},
+			}}
+		/>,
 	);
 
 	const output = lastFrame();
@@ -691,7 +696,9 @@ test('LiveCompactCounts - renders tool counts', t => {
 
 test('LiveCompactCounts - renders single count without multiplier', t => {
 	const {lastFrame, unmount} = renderWithTheme(
-		<LiveCompactCounts counts={{write_file: {count: 1, detail: 'notes.md'}}} />,
+		<LiveCompactCounts
+			counts={{write_file: {count: 1, detail: 'notes.md', running: true}}}
+		/>,
 	);
 
 	const output = lastFrame();
@@ -704,7 +711,7 @@ test('LiveCompactCounts - renders single count without multiplier', t => {
 test('LiveCompactCounts - collapses repeated detailed calls to multiplier', t => {
 	const {lastFrame, unmount} = renderWithTheme(
 		<LiveCompactCounts
-			counts={{execute_bash: {count: 2, detail: 'echo latest'}}}
+			counts={{execute_bash: {count: 2, detail: 'echo latest', running: true}}}
 		/>,
 	);
 
@@ -712,6 +719,23 @@ test('LiveCompactCounts - collapses repeated detailed calls to multiplier', t =>
 	t.truthy(output);
 	t.regex(output!, /Bash ×2/);
 	t.notRegex(output!, /echo latest/);
+	unmount();
+});
+
+test('LiveCompactCounts - ignores completed compact counts', t => {
+	const {lastFrame, unmount} = renderWithTheme(
+		<LiveCompactCounts
+			counts={{
+				ask_user: {count: 1},
+				execute_bash: {count: 3, running: true},
+			}}
+		/>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /Running Bash ×3/);
+	t.notRegex(output!, /AskUserQuestion/);
 	unmount();
 });
 
@@ -727,7 +751,12 @@ test('LiveCompactCounts - renders empty counts without error', t => {
 
 test('LiveCompactCounts - renders a single hammer for grouped entries', t => {
 	const {lastFrame, unmount} = renderWithTheme(
-		<LiveCompactCounts counts={{read_file: 1, execute_bash: 2}} />,
+		<LiveCompactCounts
+			counts={{
+				read_file: {count: 1, running: true},
+				execute_bash: {count: 2, running: true},
+			}}
+		/>,
 	);
 
 	const output = lastFrame();

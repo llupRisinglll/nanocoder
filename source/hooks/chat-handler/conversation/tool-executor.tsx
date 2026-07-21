@@ -23,6 +23,7 @@ import {
 import {parseToolArguments} from '@/utils/tool-args-parser';
 import {
 	ALWAYS_EXPANDED_TOOLS,
+	type CompactToolActivityMap,
 	displayToolResult,
 	getCompactToolDetail,
 	LIVE_TASK_TOOLS,
@@ -86,6 +87,7 @@ export interface ToolDisplayOptions {
 		failed?: boolean,
 	) => void;
 	onLiveTaskUpdate?: () => void;
+	onRunningToolCounts?: (counts: CompactToolActivityMap | null) => void;
 	nonInteractiveMode?: boolean;
 	/**
 	 * Called immediately before a "detailed" compact tool line (bash command,
@@ -540,6 +542,7 @@ export const executeToolsDirectly = async (
 			failed?: boolean,
 		) => void;
 		onLiveTaskUpdate?: () => void;
+		onRunningToolCounts?: (counts: CompactToolActivityMap | null) => void;
 		setLiveComponent?: (component: React.ReactNode) => void;
 		/**
 		 * When true, compact tool results push a one-liner directly to the
@@ -566,6 +569,25 @@ export const executeToolsDirectly = async (
 
 	const directResults: ToolResult[] = [];
 
+	const showRunningGroup = (group: ToolCall[]) => {
+		if (!options?.compactDisplay || !options.onRunningToolCounts) return;
+		if (options.nonInteractiveMode || group.length <= 1) return;
+
+		const counts: CompactToolActivityMap = {};
+		for (const toolCall of group) {
+			const toolName = toolCall.function.name;
+			const current = counts[toolName];
+			const count =
+				typeof current === 'number' ? current : (current?.count ?? 0);
+			counts[toolName] = {count: count + 1, running: true};
+		}
+		options.onRunningToolCounts(counts);
+	};
+
+	const clearRunningGroup = () => {
+		options?.onRunningToolCounts?.(null);
+	};
+
 	for (const {group, type} of groups) {
 		let executions: Array<{
 			toolCall: ToolCall;
@@ -577,16 +599,23 @@ export const executeToolsDirectly = async (
 			// Parallel execution for consecutive agent tools
 			// Note: The promise resolves with the raw agent result. We return the
 			// ORIGINAL toolCall (with placeholders) to preserve history.
-			const agentResults = await executeAgentBatch(
-				group,
-				toolManager,
-				addToChatQueue,
-				options?.compactDisplay,
-				options?.setLiveComponent,
-				options?.onCompactToolCount,
-				options?.nonInteractiveMode,
-				options?.signal,
-			);
+			showRunningGroup(group);
+			const agentResults = await (async () => {
+				try {
+					return await executeAgentBatch(
+						group,
+						toolManager,
+						addToChatQueue,
+						options?.compactDisplay,
+						options?.setLiveComponent,
+						options?.onCompactToolCount,
+						options?.nonInteractiveMode,
+						options?.signal,
+					);
+				} finally {
+					clearRunningGroup();
+				}
+			})();
 
 			// Agent results are already displayed by executeAgentBatch
 			for (const {toolCall, result} of agentResults) {
@@ -601,9 +630,14 @@ export const executeToolsDirectly = async (
 
 		if (type === 'readOnly' && group.length > 1) {
 			// Parallel execution for consecutive read-only tools
-			executions = await Promise.all(
-				group.map(toolCall => executeOne(toolCall, processToolUse)),
-			);
+			showRunningGroup(group);
+			try {
+				executions = await Promise.all(
+					group.map(toolCall => executeOne(toolCall, processToolUse)),
+				);
+			} finally {
+				clearRunningGroup();
+			}
 		} else {
 			// Sequential execution for non-parallelizable tools (or single-item groups)
 			executions = [];

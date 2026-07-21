@@ -850,6 +850,7 @@ export const processAssistantResponse = async (
 					onSetLiveTaskList?.(tasks);
 				});
 			},
+			onRunningToolCounts: onSetCompactToolCounts,
 			nonInteractiveMode,
 			onBeforeDetailedToolLine: flushCompactCounts,
 			iconTheme: iconThemeRef?.current ?? false,

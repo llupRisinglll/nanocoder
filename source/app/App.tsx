@@ -48,6 +48,7 @@ import {createPinoLogger} from '@/utils/logging/pino-logger';
 import {setGlobalMessageQueue} from '@/utils/message-queue';
 import {setNotificationsConfig} from '@/utils/notifications';
 import {getShutdownManager} from '@/utils/shutdown';
+import {LiveCompactCounts} from '@/utils/tool-result-display';
 import {isExtensionInstalled} from '@/vscode/extension-installer';
 
 export default function App({
@@ -731,11 +732,22 @@ export default function App({
 	const showAssistantReasoning =
 		chatHandler.streamingReasoning && chatHandler.streamingContent;
 
+	const runningCompactCounts =
+		appState.compactToolCounts &&
+		Object.values(appState.compactToolCounts).some(value =>
+			typeof value === 'number' ? false : value.running,
+		) ? (
+			<LiveCompactCounts counts={appState.compactToolCounts} />
+		) : null;
+
 	const liveComponent =
 		appState.liveComponent ??
 		(chatHandler.isGenerating &&
-		(chatHandler.streamingContent || chatHandler.streamingReasoning) ? (
+		(chatHandler.streamingContent ||
+			chatHandler.streamingReasoning ||
+			runningCompactCounts) ? (
 			<>
+				{runningCompactCounts}
 				{chatHandler.streamingReasoning && !chatHandler.streamingContent && (
 					<StreamingReasoning
 						reasoning={chatHandler.streamingReasoning}
