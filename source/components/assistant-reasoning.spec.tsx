@@ -84,9 +84,9 @@ test('ThoughtRunSummary renders tools before separate thought line', t => {
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /execute_bash ×5, write_tasks ×2/);
+	t.regex(output!, /Ran Bash ×5 and TodoWrite ×2/);
 	t.regex(output!, /Thought for 2s \(ctrl\+r to expand\)/);
-	t.notRegex(output!, /Thought.*execute_bash/);
+	t.notRegex(output!, /Thought.*Bash/);
 });
 
 test('AssistantReasoning renders with bold text', t => {

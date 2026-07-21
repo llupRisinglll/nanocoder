@@ -8,6 +8,8 @@ import type {UserMessageProps} from '@/types/index';
 import {wrapWithTrimmedContinuations} from '@/utils/text-wrapping';
 import {calculateTokens} from '@/utils/token-calculator';
 
+const ICON_PROMPT_HISTORY_BACKGROUND = '#2a2a2a';
+
 // Strip VS Code context blocks from display (code is still sent to LLM)
 function stripVSCodeContext(message: string): string {
 	return message.replace(
@@ -18,10 +20,10 @@ function stripVSCodeContext(message: string): string {
 
 function collapseCustomCommandPrompt(message: string): string {
 	const match = message.match(
-		/^\[Executing custom command: \/(.+?)\]\s*(?:\n|$)/,
+		/^\[Executing custom command: (\/.+?)\]\s*(?:\n|$)/,
 	);
 	if (!match) return message;
-	return `/${match[1]}`;
+	return match[1];
 }
 
 // Display-only cap for very long messages (e.g. expanded large pastes): show
@@ -147,12 +149,10 @@ export default memo(function UserMessage({
 		<>
 			{arrowMode ? (
 				<Box
+					marginTop={1}
 					marginBottom={0}
-					marginX={1}
-					width={boxWidth - 2}
-					paddingX={1}
-					borderStyle="round"
-					borderColor={colors.secondary}
+					width={boxWidth}
+					backgroundColor={ICON_PROMPT_HISTORY_BACKGROUND}
 				>
 					<Text color={colors.primary} bold>
 						{colors.promptChar}{' '}

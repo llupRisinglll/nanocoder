@@ -1,15 +1,16 @@
+import {Box, Text} from 'ink';
 import React from 'react';
 import {appendToolDefinitionsToPrompt} from '@/ai-sdk-client/tools/system-prompt-assembler';
 import {ConversationStateManager} from '@/app/utils/conversation-state';
 import UserMessage from '@/components/user-message';
 import {getAppConfig} from '@/config/index';
 import {CommandIntegration} from '@/custom-commands/command-integration';
+import {useTheme} from '@/hooks/useTheme';
 import {generateKey} from '@/session/key-generator';
 import {formatAvailableSkillsForPrompt} from '@/skills/prompt';
 import {getTuneToolMode} from '@/types/config';
 import type {ImageAttachment, Message} from '@/types/core';
 import {MessageBuilder} from '@/utils/message-builder';
-import {infoMsg} from '@/utils/message-factory';
 import {
 	type BuiltPromptBlock,
 	buildSystemPromptBlocks,
@@ -24,6 +25,15 @@ type CachedPrompt = {
 	prompt: string;
 	blocks: BuiltPromptBlock[];
 };
+
+function PrivacyNotice({message}: {message: string}) {
+	const {colors} = useTheme();
+	return (
+		<Box marginBottom={1}>
+			<Text color={colors.secondary}>{message}</Text>
+		</Box>
+	);
+}
 
 type CachedPromptInput = string | CachedPrompt | null;
 
@@ -141,6 +151,7 @@ export function useChatHandler({
 	currentModel,
 	setIsCancelling,
 	addToChatQueue,
+	addTransientNotice,
 	abortController,
 	setAbortController,
 	developmentMode = 'normal',
@@ -282,9 +293,9 @@ export function useChatHandler({
 	// Helper to display errors in chat queue
 	const displayError = React.useCallback(
 		(error: unknown, keyPrefix: string) => {
-			displayErrorHelper(error, keyPrefix, addToChatQueue);
+			displayErrorHelper(error, keyPrefix, addToChatQueue, addTransientNotice);
 		},
-		[addToChatQueue],
+		[addToChatQueue, addTransientNotice],
 	);
 
 	// Reset conversation state when messages are cleared
@@ -339,11 +350,9 @@ export function useChatHandler({
 					onPrivacyEvent: (count: number) => {
 						// `count` is the number of NEW identifiers scrubbed on this turn
 						// (the per-turn delta), not a session running total.
+						const message = `Privacy active: scrubbed ${count} new identifier${count === 1 ? '' : 's'}`;
 						addToChatQueue(
-							infoMsg(
-								`Privacy active: scrubbed ${count} new identifier${count === 1 ? '' : 's'}`,
-								'privacy',
-							),
+							<PrivacyNotice key={generateKey('privacy')} message={message} />,
 						);
 					},
 				});

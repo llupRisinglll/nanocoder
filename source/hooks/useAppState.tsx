@@ -33,6 +33,7 @@ import type {Tokenizer} from '@/types/tokenization.js';
 import type {ThemePreset} from '@/types/ui';
 import {BoundedMap} from '@/utils/bounded-map';
 import type {PendingQuestion} from '@/utils/question-queue';
+import type {CompactToolActivityMap} from '@/utils/tool-result-display';
 
 export type ActiveMode =
 	| 'model'
@@ -165,13 +166,11 @@ export function useAppState(
 	// Ref keeps current value accessible to long-running async loops
 	const compactToolDisplayRef = useRef(true);
 	compactToolDisplayRef.current = compactToolDisplay;
-	const [compactToolCounts, setCompactToolCounts] = useState<Record<
-		string,
-		number
-	> | null>(null);
+	const [compactToolCounts, setCompactToolCounts] =
+		useState<CompactToolActivityMap | null>(null);
 	// Mutable ref for the compact counts accumulator - shared between
 	// the async conversation loop and the toggle handler
-	const compactToolCountsRef = useRef<Record<string, number>>({});
+	const compactToolCountsRef = useRef<CompactToolActivityMap>({});
 
 	// Live task list state - renders in the live area (updating in-place)
 	// instead of appending repeated task lists to the static chat queue

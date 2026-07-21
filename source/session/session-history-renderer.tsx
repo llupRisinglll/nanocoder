@@ -6,6 +6,7 @@ import UserMessage from '@/components/user-message';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import {generateKey} from '@/session/key-generator';
+import {displayForFormat} from '@/tools/tool-aliases';
 import type {Message, ToolCall} from '@/types/core';
 import {parseToolArguments} from '@/utils/tool-args-parser';
 
@@ -91,6 +92,10 @@ function moreLabel(toolName: string, count: number): string {
 	return `${count} more ${noun}${count === 1 ? '' : 's'}`;
 }
 
+function getHistoryDisplayToolName(toolName: string): string {
+	return displayForFormat(toolName, 'claude-code');
+}
+
 const HistoryToolSummary = memo(function HistoryToolSummary({
 	groups,
 	latestHint,
@@ -103,6 +108,9 @@ const HistoryToolSummary = memo(function HistoryToolSummary({
 	const hintGroup = latestHint
 		? groups.find(([name]) => name === latestHint.toolName)?.[1]
 		: undefined;
+	const totalCalls = groups.reduce((sum, [, group]) => sum + group.count, 0);
+	const singleCallWithDetail =
+		totalCalls === 1 && groups.length === 1 && latestHint?.descriptor;
 	const remaining = hintGroup ? Math.max(0, hintGroup.count - 1) : 0;
 	const moreText = latestHint
 		? `… +${moreLabel(latestHint.toolName, remaining)} (ctrl + o to verbose)`
@@ -111,27 +119,50 @@ const HistoryToolSummary = memo(function HistoryToolSummary({
 	return (
 		<Box width={boxWidth} flexDirection="column">
 			<Text>
-				<Text color={colors.tool}>⚒ </Text>
-				{groups.map(([toolName, group], index) => (
-					<React.Fragment key={toolName}>
-						<Text color={colors.primary}>{toolName}</Text>
-						{group.count > 1 && (
-							<Text color={colors.text}> ×{group.count}</Text>
-						)}
-						{group.failed && <Text color={colors.error}> failed</Text>}
-						{index + 1 < groups.length && (
-							<Text color={colors.secondary}>, </Text>
-						)}
-					</React.Fragment>
-				))}
+				<Text color={colors.primary}>⚒ </Text>
+				<Text> </Text>
+				{singleCallWithDetail ? (
+					<>
+						<Text color={colors.primary}>
+							{getHistoryDisplayToolName(groups[0][0])}
+						</Text>
+						{groups[0][1].failed && <Text color={colors.error}> failed</Text>}
+						<Text color={colors.secondary}>(</Text>
+						<Text color={colors.text}>{truncate(latestHint.descriptor)}</Text>
+						<Text color={colors.secondary}>)</Text>
+					</>
+				) : (
+					<>
+						<Text color={colors.text}>Ran </Text>
+						{groups.map(([toolName, group], index) => {
+							const isLast = index === groups.length - 1;
+							const separator = index === 0 ? '' : isLast ? ' and ' : ', ';
+							return (
+								<React.Fragment key={toolName}>
+									{separator && <Text color={colors.text}>{separator}</Text>}
+									<Text color={colors.primary}>
+										{getHistoryDisplayToolName(toolName)}
+									</Text>
+									{group.count > 1 && (
+										<Text color={colors.text}> ×{group.count}</Text>
+									)}
+									{group.failed && <Text color={colors.error}> failed</Text>}
+								</React.Fragment>
+							);
+						})}
+					</>
+				)}
 			</Text>
-			{latestHint?.descriptor && (
+			{latestHint?.descriptor && !singleCallWithDetail && (
 				<Text color={colors.secondary}>
-					└ {truncate(latestHint.descriptor)}
+					{'  '}└ {truncate(latestHint.descriptor)}
 				</Text>
 			)}
 			{latestHint && remaining > 0 && (
-				<Text color={colors.secondary}> {moreText}</Text>
+				<Text color={colors.secondary}>
+					{'  '}
+					{moreText}
+				</Text>
 			)}
 		</Box>
 	);

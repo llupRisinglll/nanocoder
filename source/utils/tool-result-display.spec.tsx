@@ -153,7 +153,7 @@ test('displayToolResult - compact mode condenses an error to a one-liner', async
 		queue[0] as React.ReactElement,
 	);
 	const output = lastFrame();
-	t.regex(output!, /write_file failed/);
+	t.regex(output!, /Write failed/);
 	t.notRegex(output!, /verbose explanation/);
 	unmount();
 });
@@ -174,7 +174,7 @@ test('displayToolResult - compact mode condenses a validation failure too', asyn
 		queue[0] as React.ReactElement,
 	);
 	const output = lastFrame();
-	t.regex(output!, /write_file failed/);
+	t.regex(output!, /Write failed/);
 	t.notRegex(output!, /Invalid file path/);
 	unmount();
 });
@@ -582,7 +582,7 @@ test('displayToolResult - compact mode condenses errors to a one-liner', async t
 		queue[0] as React.ReactElement,
 	);
 	const output = lastFrame();
-	t.regex(output!, /read_file failed/);
+	t.regex(output!, /Read failed/);
 	t.notRegex(output!, /File not found/);
 	unmount();
 });
@@ -635,19 +635,33 @@ test('LiveCompactCounts - renders tool counts', t => {
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /read_file ×3, search_file_contents ×2/);
+	t.regex(output!, /Ran Read ×3 and Grep ×2/);
 	unmount();
 });
 
 test('LiveCompactCounts - renders single count without multiplier', t => {
 	const {lastFrame, unmount} = renderWithTheme(
-		<LiveCompactCounts counts={{write_file: 1}} />,
+		<LiveCompactCounts counts={{write_file: {count: 1, detail: 'notes.md'}}} />,
 	);
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /write_file/);
+	t.regex(output!, /Write\(notes\.md\)/);
 	t.notRegex(output!, /×1/);
+	unmount();
+});
+
+test('LiveCompactCounts - collapses repeated detailed calls to multiplier', t => {
+	const {lastFrame, unmount} = renderWithTheme(
+		<LiveCompactCounts
+			counts={{execute_bash: {count: 2, detail: 'echo latest'}}}
+		/>,
+	);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /Bash ×2/);
+	t.notRegex(output!, /echo latest/);
 	unmount();
 });
 
@@ -670,7 +684,7 @@ test('LiveCompactCounts - renders a single hammer for grouped entries', t => {
 	t.truthy(output);
 	const hammerCount = (output!.match(/\u2692/g) || []).length;
 	t.is(hammerCount, 1);
-	t.regex(output!, /read_file, execute_bash ×2/);
+	t.regex(output!, /Ran Read and Bash ×2/);
 	unmount();
 });
 
@@ -689,11 +703,11 @@ test('displayToolResult compact - read_file shows compact tool name', async t =>
 	const {lastFrame, unmount} = renderWithTheme(
 		queue[0] as React.ReactElement,
 	);
-	t.regex(lastFrame()!, /read_file/);
+	t.regex(lastFrame()!, /Read/);
 	unmount();
 });
 
-test('displayToolResult compact - execute_bash does not show command detail for icon theme', async t => {
+test('displayToolResult compact - execute_bash shows command detail for icon theme', async t => {
 	const {addToChatQueue, queue} = createMockAddToChatQueue();
 	const toolCall = createMockToolCall('1', 'execute_bash', {command: 'ls'});
 	const result = createMockToolResult('1', 'execute_bash', 'output');
@@ -707,8 +721,7 @@ test('displayToolResult compact - execute_bash does not show command detail for 
 		queue[0] as React.ReactElement,
 	);
 	const output = lastFrame();
-	t.regex(output!, /execute_bash/);
-	t.notRegex(output!, /ls/);
+	t.regex(output!, /Bash\(ls\)/);
 	t.notRegex(output!, /Ran/);
 	unmount();
 });

@@ -33,6 +33,12 @@ export interface StatusLineData {
 	context?: {
 		used_percent: number | null;
 	};
+	tune?: {
+		enabled: boolean;
+		profile: string;
+		resolved_profile: string;
+		tool_mode: string;
+	};
 	version: string;
 }
 

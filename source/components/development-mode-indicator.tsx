@@ -15,6 +15,16 @@ import {
 } from '@/types/core';
 import type {ActiveEditorState} from '@/vscode/vscode-server';
 
+export interface DevelopmentModeStatusInfo {
+	user?: string;
+	host?: string;
+	directory?: string;
+	git?: {
+		branch: string;
+		dirty: boolean;
+	};
+}
+
 interface DevelopmentModeIndicatorProps {
 	developmentMode: DevelopmentMode;
 	colors: ReturnType<typeof useTheme>['colors'];
@@ -26,6 +36,7 @@ interface DevelopmentModeIndicatorProps {
 	tune?: TuneConfig;
 	currentModel?: string;
 	activeEditor?: ActiveEditorState | null;
+	statusInfo?: DevelopmentModeStatusInfo;
 }
 
 function getContextColor(
@@ -35,6 +46,11 @@ function getContextColor(
 	if (percent >= TOKEN_THRESHOLD_CRITICAL_PERCENT) return colors.error;
 	if (percent >= TOKEN_THRESHOLD_WARNING_PERCENT) return colors.warning;
 	return colors.secondary;
+}
+
+function contextBar(percent: number): string {
+	const filled = Math.max(0, Math.min(10, Math.round(percent / 10)));
+	return `${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}`;
 }
 
 /**
@@ -52,6 +68,7 @@ export const DevelopmentModeIndicator = React.memo(
 		tune,
 		currentModel,
 		activeEditor,
+		statusInfo,
 	}: DevelopmentModeIndicatorProps) => {
 		const {isNarrow, actualWidth, truncate} = useResponsiveTerminal();
 		const modeLabel = isNarrow
@@ -199,48 +216,87 @@ export const DevelopmentModeIndicator = React.memo(
 		})();
 
 		return (
-			<Box marginTop={1}>
-				<Text
-					color={
-						developmentMode === 'normal'
-							? colors.secondary
-							: developmentMode === 'yolo'
-								? colors.error
-								: developmentMode === 'auto-accept' ||
-										developmentMode === 'headless'
-									? colors.info
-									: colors.warning
-					}
-				>
-					<Text bold>{modeLabel}</Text>
-					{showShiftHint && <Text> (Shift+Tab to cycle)</Text>}
-				</Text>
-				{sessionLabel && (
-					<>
-						<Text color={colors.secondary}> · </Text>
-						<Text color={colors.primary}>{sessionLabel}</Text>
-					</>
-				)}
-				{tuneLabel && (
-					<>
-						<Text color={colors.secondary}> · </Text>
-						<Text color={colors.info}>{tuneLabel}</Text>
-					</>
-				)}
-				{contextPercentUsed !== null && (
-					<>
-						<Text color={colors.secondary}> · </Text>
-						<Text color={getContextColor(contextPercentUsed, colors)}>
-							ctx: {ctxPrefix}
-							{contextPercentUsed}%
-						</Text>
-					</>
-				)}
-				{editorLabel && (
-					<>
-						<Text color={colors.secondary}> · </Text>
-						<Text color={colors.info}>{editorLabel}</Text>
-					</>
+			<Box flexDirection="column">
+				<Box>
+					<Text
+						color={
+							developmentMode === 'normal'
+								? colors.secondary
+								: developmentMode === 'yolo'
+									? colors.error
+									: developmentMode === 'auto-accept' ||
+											developmentMode === 'headless'
+										? colors.info
+										: colors.warning
+						}
+					>
+						<Text bold>{modeLabel}</Text>
+						{showShiftHint && <Text> (Shift+Tab to cycle)</Text>}
+					</Text>
+					{currentModel && (
+						<>
+							<Text color={colors.secondary}> · </Text>
+							<Text color={colors.primary}>{currentModel}</Text>
+						</>
+					)}
+					{sessionLabel && (
+						<>
+							<Text color={colors.secondary}> · </Text>
+							<Text color={colors.primary}>{sessionLabel}</Text>
+						</>
+					)}
+					{tuneLabel && (
+						<>
+							<Text color={colors.secondary}> · </Text>
+							<Text color={colors.info}>{tuneLabel}</Text>
+						</>
+					)}
+					{contextPercentUsed !== null && (
+						<>
+							<Text color={colors.secondary}> · </Text>
+							<Text color={colors.secondary}>ctx: </Text>
+							<Text color={getContextColor(contextPercentUsed, colors)}>
+								{ctxPrefix}
+								{contextBar(contextPercentUsed)}
+							</Text>
+							<Text color={colors.secondary}> {contextPercentUsed}%</Text>
+						</>
+					)}
+					{editorLabel && (
+						<>
+							<Text color={colors.secondary}> · </Text>
+							<Text color={colors.info}>{editorLabel}</Text>
+						</>
+					)}
+				</Box>
+				{statusInfo && (
+					<Box>
+						<Text color={colors.secondary}>[</Text>
+						{statusInfo.user && (
+							<Text color={colors.info}>{statusInfo.user}</Text>
+						)}
+						{statusInfo.host && (
+							<>
+								<Text color={colors.secondary}>@</Text>
+								<Text color={colors.info}>{statusInfo.host}</Text>
+							</>
+						)}
+						{statusInfo.directory && (
+							<>
+								<Text color={colors.secondary}> </Text>
+								<Text color={colors.info}>{statusInfo.directory}</Text>
+							</>
+						)}
+						<Text color={colors.secondary}>]</Text>
+						{statusInfo.git && (
+							<>
+								<Text color={colors.secondary}> git:(</Text>
+								<Text color={colors.error}>{statusInfo.git.branch}</Text>
+								<Text color={colors.secondary}>)</Text>
+								{statusInfo.git.dirty && <Text color={colors.warning}> x</Text>}
+							</>
+						)}
+					</Box>
 				)}
 			</Box>
 		);

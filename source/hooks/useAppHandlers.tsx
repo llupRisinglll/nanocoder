@@ -97,6 +97,7 @@ interface UseAppHandlersProps {
 
 	// Callbacks
 	addToChatQueue: (component: React.ReactNode) => void;
+	addTransientNotice?: (component: React.ReactNode) => void;
 	setChatComponents: (components: React.ReactNode[]) => void;
 	setLiveComponent: (component: React.ReactNode) => void;
 	client: LLMClient | null;
@@ -541,7 +542,8 @@ export function useAppHandlers(props: UseAppHandlersProps): AppHandlers {
 			)) {
 				props.addToChatQueue(component);
 			}
-			props.addToChatQueue(
+			const addResumeNotice = props.addTransientNotice ?? props.addToChatQueue;
+			addResumeNotice(
 				<SuccessMessage
 					key={generateKey('resume-success')}
 					message={`Resumed session: ${session.title}`}
@@ -557,6 +559,7 @@ export function useAppHandlers(props: UseAppHandlersProps): AppHandlers {
 			props.setCurrentSessionId,
 			props.setActiveMode,
 			props.addToChatQueue,
+			props.addTransientNotice,
 			props,
 		],
 	);

@@ -1,4 +1,6 @@
 import test from 'ava';
+import type React from 'react';
+import {renderWithTheme} from '@/test-utils/render-with-theme.js';
 import {displayExecutedTool, executeToolsDirectly} from './tool-executor.js';
 import type {ToolCall, ToolResult} from '@/types/core';
 
@@ -201,10 +203,10 @@ test('executeToolsDirectly - executes tool successfully', async t => {
 	t.true(results[0].content.includes('Tool executed'));
 });
 
-test('displayExecutedTool - omnicode compact execute_bash collapses into grouped count', async t => {
+test('displayExecutedTool - omnicode compact execute_bash renders command detail before grouping', async t => {
 	const conversationStateManager = createMockConversationStateManager();
 	const addToChatQueueCalls: unknown[] = [];
-	const countedTools: string[] = [];
+	const countedTools: Array<[string, string | undefined]> = [];
 
 	const toolCall: ToolCall = {
 		id: 'call_bash_1',
@@ -230,17 +232,17 @@ test('displayExecutedTool - omnicode compact execute_bash collapses into grouped
 		{
 			compactDisplay: true,
 			iconTheme: true,
-			onCompactToolCount: toolName => {
-				countedTools.push(toolName);
+			onCompactToolCount: (toolName, detail) => {
+				countedTools.push([toolName, detail]);
 			},
 		},
 	);
 
-	t.deepEqual(countedTools, ['execute_bash']);
+	t.deepEqual(countedTools, [['execute_bash', 'echo one']]);
 	t.is(addToChatQueueCalls.length, 0);
 });
 
-test('displayExecutedTool - omnicode non-interactive execute_bash still collapses into grouped count', async t => {
+test('displayExecutedTool - omnicode non-interactive execute_bash renders command detail', async t => {
 	const conversationStateManager = createMockConversationStateManager();
 	const addToChatQueueCalls: unknown[] = [];
 	const countedTools: string[] = [];
@@ -276,8 +278,14 @@ test('displayExecutedTool - omnicode non-interactive execute_bash still collapse
 		},
 	);
 
-	t.deepEqual(countedTools, ['execute_bash']);
-	t.is(addToChatQueueCalls.length, 0);
+	t.deepEqual(countedTools, []);
+	t.is(addToChatQueueCalls.length, 1);
+	const {lastFrame, unmount} = renderWithTheme(
+		addToChatQueueCalls[0] as React.ReactElement,
+	);
+	const output = lastFrame();
+	t.regex(output!, /Bash\(docker ps\)/);
+	unmount();
 });
 
 test('executeToolsDirectly - executes multiple read-only tools in parallel', async t => {

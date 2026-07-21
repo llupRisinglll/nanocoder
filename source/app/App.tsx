@@ -113,6 +113,41 @@ export default function App({
 
 	// Track whether we should show welcome (reset on /clear to clear banner)
 	const [showWelcome, setShowWelcome] = React.useState(true);
+	const [transientNoticeComponents, setTransientNoticeComponents] =
+		React.useState<React.ReactNode[]>([]);
+	const userSubmittedSinceStartupRef = React.useRef(false);
+
+	const addTransientNotice = React.useCallback((component: React.ReactNode) => {
+		let componentWithKey = component;
+		if (React.isValidElement(component) && !component.key) {
+			componentWithKey = React.cloneElement(component, {
+				key: generateKey('transient-notice'),
+			});
+		}
+		const nextMessage =
+			React.isValidElement(componentWithKey) &&
+			typeof componentWithKey.props === 'object' &&
+			componentWithKey.props !== null &&
+			'message' in componentWithKey.props
+				? componentWithKey.props.message
+				: undefined;
+		setTransientNoticeComponents(prev => {
+			if (typeof nextMessage !== 'string') {
+				return [...prev, componentWithKey];
+			}
+			return [
+				...prev.filter(
+					existing =>
+						!React.isValidElement(existing) ||
+						typeof existing.props !== 'object' ||
+						existing.props === null ||
+						!('message' in existing.props) ||
+						existing.props.message !== nextMessage,
+				),
+				componentWithKey,
+			];
+		});
+	}, []);
 
 	// Exit WITHOUT unmounting Ink first: the shutdown manager's
 	// 'tui-exit-render' handler (cli.tsx) erases the live region and prints
@@ -178,12 +213,18 @@ export default function App({
 
 	// Initialize global message queue on component mount
 	React.useEffect(() => {
-		setGlobalMessageQueue(appState.addToChatQueue);
+		setGlobalMessageQueue(component => {
+			if (!userSubmittedSinceStartupRef.current) {
+				addTransientNotice(component);
+				return;
+			}
+			appState.addToChatQueue(component);
+		});
 
 		logger.debug('Global message queue initialized', {
 			chatQueueFunction: 'addToChatQueue',
 		});
-	}, [appState.addToChatQueue, logger]);
+	}, [appState.addToChatQueue, addTransientNotice, logger]);
 
 	// Question + subagent tool approval queues plumbed through global handlers.
 	const {
@@ -245,6 +286,7 @@ export default function App({
 		currentModel: appState.currentModel,
 		setIsCancelling: appState.setIsCancelling,
 		addToChatQueue: appState.addToChatQueue,
+		addTransientNotice,
 		abortController: appState.abortController,
 		setAbortController: appState.setAbortController,
 		developmentMode: appState.developmentMode,
@@ -489,6 +531,7 @@ export default function App({
 		setPlanReviewState: appState.setPlanReviewState,
 		setPendingPlanProceed: appState.setPendingPlanProceed,
 		addToChatQueue: appState.addToChatQueue,
+		addTransientNotice,
 		setChatComponents: appState.setChatComponents,
 		setLiveComponent: appState.setLiveComponent,
 		client: appState.client,
@@ -535,10 +578,24 @@ export default function App({
 	// Wraps the user's typed message with the VS Code active-editor pill.
 	// File-focused-only sends just the filename hint; an active selection
 	// inlines the code too.
-	const handleUserSubmit = useUserSubmit({
+	const submitUserMessage = useUserSubmit({
 		handleMessageSubmit: appHandlers.handleMessageSubmit,
 		activeEditor: vscodeServer.activeEditor,
 	});
+	const handleUserSubmit = React.useCallback(
+		async (
+			message: string,
+			displayValue: string,
+			images?: ImageAttachment[],
+		) => {
+			setTransientNoticeComponents([]);
+			if (!userSubmittedSinceStartupRef.current) {
+				userSubmittedSinceStartupRef.current = true;
+			}
+			await submitUserMessage(message, displayValue, images);
+		},
+		[submitUserMessage],
+	);
 
 	React.useEffect(() => {
 		queuedUserSubmitRef.current = handleUserSubmit;
@@ -741,6 +798,7 @@ export default function App({
 						appHandlers={appHandlers}
 						vscodeServer={vscodeServer}
 						staticComponents={staticComponents}
+						transientNoticeComponents={transientNoticeComponents}
 						clearKey={conversationId}
 						liveComponent={liveComponent}
 						pendingSubagentApproval={pendingSubagentApproval}

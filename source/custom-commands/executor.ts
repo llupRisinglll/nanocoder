@@ -39,8 +39,13 @@ export class CustomCommandExecutor {
 		);
 		const promptContent = substituteTemplateVariables(sectioned, variables);
 
-		// Build the full prompt
-		let fullPrompt = `[Executing custom command: /${command.fullName}]\n\n${promptContent}`;
+		// Build the full prompt. Include raw arguments in the display header so
+		// the transcript mirrors what the user typed, while the expanded body
+		// below remains the model-facing command prompt.
+		const invocation = [`/${command.fullName}`, variables.args]
+			.filter(Boolean)
+			.join(' ');
+		let fullPrompt = `[Executing custom command: ${invocation}]\n\n${promptContent}`;
 
 		// Append resource information if available
 		if (command.loadedResources?.length) {

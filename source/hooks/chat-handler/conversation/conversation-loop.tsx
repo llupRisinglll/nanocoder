@@ -48,7 +48,10 @@ import {getLastBuiltPrompt} from '@/utils/prompt-builder';
 import {calculateTokens} from '@/utils/token-calculator';
 import {createCancellationResults} from '@/utils/tool-cancellation';
 import {signalToolConfirm} from '@/utils/tool-confirm-queue';
-import {displayCompactCountsSummary} from '@/utils/tool-result-display';
+import {
+	type CompactToolActivityMap,
+	displayCompactCountsSummary,
+} from '@/utils/tool-result-display';
 import {closeAllDiffsInVSCode} from '@/vscode/index';
 import {filterValidToolCalls} from '../utils/tool-filters';
 import {computeToolCallSignature} from '../utils/tool-signature';
@@ -92,8 +95,8 @@ interface ProcessAssistantResponseParams {
 	// live ref instead of read via config's disk-cached getColors().
 	iconThemeRef?: React.RefObject<boolean>;
 	compactToolDisplayRef?: React.RefObject<boolean>;
-	onSetCompactToolCounts?: (counts: Record<string, number> | null) => void;
-	compactToolCountsRef?: React.MutableRefObject<Record<string, number>>;
+	onSetCompactToolCounts?: (counts: CompactToolActivityMap | null) => void;
+	compactToolCountsRef?: React.MutableRefObject<CompactToolActivityMap>;
 	onSetLiveTaskList?: (tasks: Task[] | null) => void;
 	setLiveComponent?: (component: React.ReactNode) => void;
 	// Records the API-reported usage of the latest response (or null to clear
@@ -822,10 +825,16 @@ export const processAssistantResponse = async (
 		// tool renders identically however it was approved.
 		const displayOptions = {
 			compactDisplay: compactToolDisplayRef?.current,
-			onCompactToolCount: (toolName: string) => {
+			onCompactToolCount: (toolName: string, detail?: string) => {
 				if (compactToolCountsRef) {
 					const counts = compactToolCountsRef.current;
-					counts[toolName] = (counts[toolName] ?? 0) + 1;
+					const current = counts[toolName] ?? {count: 0};
+					const currentActivity =
+						typeof current === 'number' ? {count: current} : current;
+					counts[toolName] = {
+						count: currentActivity.count + 1,
+						detail: detail ?? currentActivity.detail,
+					};
 					onSetCompactToolCounts?.({...counts});
 				}
 			},

@@ -3,7 +3,10 @@ import Spinner from 'ink-spinner';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {commandRegistry} from '@/commands';
 import {AnimatedGear, ElapsedTimer} from '@/components/animated-gear-timer';
-import {DevelopmentModeIndicator} from '@/components/development-mode-indicator';
+import {
+	DevelopmentModeIndicator,
+	type DevelopmentModeStatusInfo,
+} from '@/components/development-mode-indicator';
 import TextInput from '@/components/text-input';
 import {getShowWorkingIndicator} from '@/config/preferences';
 import {getTextboxBackground} from '@/config/themes';
@@ -72,6 +75,7 @@ interface ChatProps {
 	sessionName?: string; // Optional session name for display
 	tune?: TuneConfig; // Model mode configuration
 	currentModel?: string; // Active model id — resolves the 'auto' tune profile for display
+	statusInfo?: DevelopmentModeStatusInfo;
 	activeEditor?: ActiveEditorState | null; // VS Code active file + optional selection
 	onDismissActiveEditor?: () => void; // Dismiss the active editor pill on clear/escape
 	forceFocus?: boolean; // Force focus for testing (bypasses useFocus)
@@ -98,6 +102,7 @@ export default function UserInput({
 	sessionName,
 	tune,
 	currentModel,
+	statusInfo,
 	activeEditor,
 	onDismissActiveEditor,
 	forceFocus = false,
@@ -947,6 +952,7 @@ export default function UserInput({
 					sessionName={sessionName}
 					tune={tune}
 					currentModel={currentModel}
+					statusInfo={statusInfo}
 				/>
 			</Box>
 		);
@@ -1185,6 +1191,7 @@ export default function UserInput({
 				sessionName={sessionName}
 				tune={tune}
 				currentModel={currentModel}
+				statusInfo={statusInfo}
 				activeEditor={activeEditor}
 			/>
 		</>

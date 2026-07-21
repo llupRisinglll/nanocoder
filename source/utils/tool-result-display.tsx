@@ -11,6 +11,7 @@ import {useNonInteractiveRender} from '@/hooks/useNonInteractiveRender';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import {generateKey} from '@/session/key-generator';
+import {displayForFormat} from '@/tools/tool-aliases';
 import type {ToolManager} from '@/tools/tool-manager';
 import type {ToolCall, ToolResult} from '@/types/index';
 import {parseToolArguments} from '@/utils/tool-args-parser';
@@ -27,7 +28,42 @@ export const ALWAYS_EXPANDED_TOOLS = new Set(['write_tasks']);
  */
 export const LIVE_TASK_TOOLS = new Set(['write_tasks']);
 
-/** Compact tool result display - shows "⚒ toolName ×N". */
+export interface CompactToolActivity {
+	count: number;
+	detail?: string;
+}
+
+export type CompactToolActivityMap = Record<
+	string,
+	number | CompactToolActivity
+>;
+
+type CompactToolCountsInput = CompactToolActivityMap;
+
+function normalizeCompactToolEntries(
+	counts: CompactToolCountsInput,
+): Array<[string, CompactToolActivity]> {
+	return Object.entries(counts).map(([toolName, value]) => [
+		toolName,
+		typeof value === 'number' ? {count: value} : value,
+	]);
+}
+
+function getCompactDisplayToolName(toolName: string): string {
+	return displayForFormat(toolName, 'claude-code');
+}
+
+function ToolGlyph() {
+	const {colors} = useTheme();
+	return (
+		<>
+			<Text color={colors.primary}>{'\u2692'} </Text>
+			<Text> </Text>
+		</>
+	);
+}
+
+/** Compact tool result display - shows "⚒  toolName ×N". */
 function CompactToolResult({
 	toolName,
 	count = 1,
@@ -38,10 +74,46 @@ function CompactToolResult({
 	const {colors} = useTheme();
 	return (
 		<Text>
-			<Text color={colors.tool}>{'\u2692'} </Text>
-			<Text color={colors.primary}>{toolName}</Text>
+			<ToolGlyph />
+			<Text color={colors.primary}>{getCompactDisplayToolName(toolName)}</Text>
 			{count > 1 && <Text color={colors.text}> ×{count}</Text>}
 		</Text>
+	);
+}
+
+function formatGroupedToolEntries(
+	entries: Array<[string, CompactToolActivity]>,
+	textColor: string,
+): React.ReactNode[] {
+	const nodes: React.ReactNode[] = [];
+	for (let index = 0; index < entries.length; index++) {
+		const [toolName, activity] = entries[index];
+		const isLast = index === entries.length - 1;
+		const separator =
+			index === 0 ? '' : isLast && entries.length > 1 ? ' and ' : ', ';
+		nodes.push(
+			<React.Fragment key={toolName}>
+				{separator && <Text color={textColor}>{separator}</Text>}
+				<ToolNameWithCount toolName={toolName} count={activity.count} />
+			</React.Fragment>,
+		);
+	}
+	return nodes;
+}
+
+function ToolNameWithCount({
+	toolName,
+	count,
+}: {
+	toolName: string;
+	count: number;
+}) {
+	const {colors} = useTheme();
+	return (
+		<>
+			<Text color={colors.primary}>{getCompactDisplayToolName(toolName)}</Text>
+			{count > 1 && <Text color={colors.text}> ×{count}</Text>}
+		</>
 	);
 }
 
@@ -49,22 +121,46 @@ function CompactToolResult({
 export function CompactToolCountsLine({
 	entries,
 }: {
-	entries: Array<[string, number]>;
+	entries: Array<[string, number | CompactToolActivity]>;
 }) {
 	const {colors} = useTheme();
+	const normalizedEntries = entries.map(([toolName, value]) => [
+		toolName,
+		typeof value === 'number' ? {count: value} : value,
+	]) as Array<[string, CompactToolActivity]>;
+	const singleInline =
+		normalizedEntries.length === 1 &&
+		normalizedEntries[0]?.[1].count === 1 &&
+		normalizedEntries[0]?.[1].detail;
 
 	return (
 		<Text>
-			<Text color={colors.tool}>{'\u2692'} </Text>
-			{entries.map(([toolName, count], index) => (
-				<React.Fragment key={toolName}>
-					{index > 0 && <Text color={colors.secondary}>, </Text>}
-					<Text color={colors.primary}>{toolName}</Text>
-					{count > 1 && <Text color={colors.text}> ×{count}</Text>}
-				</React.Fragment>
-			))}
+			<ToolGlyph />
+			{singleInline ? (
+				<>
+					<ToolNameWithCount
+						toolName={normalizedEntries[0][0]}
+						count={normalizedEntries[0][1].count}
+					/>
+					<Text color={colors.secondary}>(</Text>
+					<Text color={colors.text}>
+						{truncateDetail(normalizedEntries[0][1].detail ?? '')}
+					</Text>
+					<Text color={colors.secondary}>)</Text>
+				</>
+			) : (
+				<>
+					<Text color={colors.text}>Ran </Text>
+					{formatGroupedToolEntries(normalizedEntries, colors.text)}
+				</>
+			)}
 		</Text>
 	);
+}
+
+function truncateDetail(value: string, max = 80): string {
+	const single = value.replace(/\s+/g, ' ').trim();
+	return single.length > max ? `${single.slice(0, max - 1)}…` : single;
 }
 
 /**
@@ -77,8 +173,8 @@ function CompactToolError({toolName}: {toolName: string}) {
 	const {colors} = useTheme();
 	return (
 		<Text>
-			<Text color={colors.tool}>{'\u2692'} </Text>
-			<Text color={colors.primary}>{toolName}</Text>
+			<ToolGlyph />
+			<Text color={colors.primary}>{getCompactDisplayToolName(toolName)}</Text>
 			<Text color={colors.error}> failed</Text>
 		</Text>
 	);
@@ -165,9 +261,9 @@ function CompactFileResult({
 	const message = (
 		<Box flexDirection="column">
 			<Box>
-				<Text color={colors.tool}>{'\u2692'} </Text>
+				<ToolGlyph />
 				<Text color={colors.primary} bold>
-					{toolName}
+					{getCompactDisplayToolName(toolName)}
 				</Text>
 				<Text color={colors.secondary}> </Text>
 				<Text wrap="truncate-end" color={colors.text}>
@@ -280,7 +376,7 @@ const PREVIEW_COLLAPSED_LINES = 3;
 const PREVIEW_EXPANDED_LINES = 50;
 
 /**
- * Detailed compact display for omnicode: one "⚒ <verb> <detail>" line
+ * Detailed compact display for omnicode: one "⚒ <toolName>(<detail>)" line
  * (actual command / path / pattern / URL — the user's security-visibility
  * ask), optionally followed by a "⎿"-prefixed preview of the tool's output
  * and a "… +N lines (ctrl+r to expand)" hint when truncated. Single header
@@ -324,9 +420,13 @@ function CompactDetailResult({
 	return (
 		<Box flexDirection="column" width={boxWidth}>
 			<Text wrap="truncate-end">
-				<Text color={colors.tool}>{'⚒'} </Text>
-				<Text color={colors.primary}>{toolName}</Text>
-				<Text color={colors.secondary}> {flatDetail}</Text>
+				<ToolGlyph />
+				<Text color={colors.primary}>
+					{getCompactDisplayToolName(toolName)}
+				</Text>
+				<Text color={colors.secondary}>(</Text>
+				<Text color={colors.text}>{flatDetail}</Text>
+				<Text color={colors.secondary}>)</Text>
 			</Text>
 			{previewLines.map((line, i) => (
 				<Box key={`preview-${i}-${line.slice(0, 16)}`}>
@@ -352,9 +452,10 @@ function CompactDetailResult({
  */
 export function getGroupedCompactDescription(
 	toolName: string,
-	count: number,
+	count: number | CompactToolActivity,
 ): string {
-	return count === 1 ? toolName : `${toolName} ×${count}`;
+	const value = typeof count === 'number' ? count : count.count;
+	return value === 1 ? toolName : `${toolName} ×${value}`;
 }
 
 /**
@@ -362,8 +463,8 @@ export function getGroupedCompactDescription(
  * Shows accumulated counts during execution (e.g. "⚒ read_file ×7").
  * Rendered in the live area (not Static) so it updates in-place.
  */
-export function LiveCompactCounts({counts}: {counts: Record<string, number>}) {
-	const entries = Object.entries(counts);
+export function LiveCompactCounts({counts}: {counts: CompactToolCountsInput}) {
+	const entries = normalizeCompactToolEntries(counts);
 
 	return (
 		<Box flexDirection="column" marginBottom={1}>
@@ -377,11 +478,11 @@ export function LiveCompactCounts({counts}: {counts: Record<string, number>}) {
  * Called when the conversation loop finishes to persist the summary.
  */
 export function displayCompactCountsSummary(
-	counts: Record<string, number>,
+	counts: CompactToolCountsInput,
 	addToChatQueue: (component: React.ReactNode) => void,
 	options?: {indent?: boolean},
 ): void {
-	const entries = Object.entries(counts);
+	const entries = normalizeCompactToolEntries(counts);
 	if (entries.length === 0) return;
 
 	// Indent the summary so it visually groups beneath its Thought header.
@@ -405,7 +506,7 @@ function CompactCountsSummaryBlock({
 	entries,
 	indent,
 }: {
-	entries: Array<[string, number]>;
+	entries: Array<[string, CompactToolActivity]>;
 	indent: boolean;
 }) {
 	const {colors} = useTheme();
@@ -531,7 +632,7 @@ export async function displayToolResult(
 		// keeps the generic CompactToolResult fallback below. Tools with no
 		// meaningful single detail (getCompactToolDetail → null) also fall
 		// through to the tally.
-		if (iconTheme && result.name !== 'execute_bash') {
+		if (iconTheme) {
 			const toolDetail = getCompactToolDetail(
 				result.name,
 				toolCall.function.arguments,

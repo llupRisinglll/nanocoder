@@ -80,7 +80,7 @@ const executeBashStreaming = async (
 /** Display + conversation-state options shared by every executed tool. */
 export interface ToolDisplayOptions {
 	compactDisplay?: boolean;
-	onCompactToolCount?: (toolName: string) => void;
+	onCompactToolCount?: (toolName: string, detail?: string) => void;
 	onLiveTaskUpdate?: () => void;
 	nonInteractiveMode?: boolean;
 	/**
@@ -191,9 +191,12 @@ export const displayExecutedTool = async (
 		// exclusively on options.iconTheme so every other theme keeps
 		// tallying these the way it always has. Tools with no single detail
 		// (getCompactToolDetail → null) still tally, even in omnicode.
+		const compactToolDetail = getCompactToolDetail(
+			result.name,
+			toolCall.function.arguments,
+		);
 		const isDetailedOmnicodeOp =
-			Boolean(options.iconTheme) &&
-			getCompactToolDetail(result.name, toolCall.function.arguments) !== null;
+			Boolean(options.iconTheme) && compactToolDetail !== null;
 
 		const iconDisplay = {
 			iconTheme: options.iconTheme,
@@ -210,13 +213,6 @@ export const displayExecutedTool = async (
 				true,
 				iconDisplay,
 			);
-		} else if (isDetailedOmnicodeOp && result.name === 'execute_bash') {
-			// Bash commonly appears in long same-tool runs (setup scripts,
-			// worktree creation, port checks). In Omnicode compact mode, collapse
-			// those into the existing grouped tool activity summary instead of
-			// printing every command preview by default. This must run before the
-			// nonInteractiveMode branch, which otherwise renders per-tool detail.
-			options.onCompactToolCount?.(result.name);
 		} else if (options.nonInteractiveMode) {
 			await displayToolResult(
 				toolCall,
@@ -237,17 +233,7 @@ export const displayExecutedTool = async (
 				iconDisplay,
 			);
 		} else if (isDetailedOmnicodeOp) {
-			// Flush any pending merged activity summary first so this detailed
-			// line appears in chronological order, then render it.
-			options.onBeforeDetailedToolLine?.();
-			await displayToolResult(
-				toolCall,
-				result,
-				toolManager,
-				addToChatQueue,
-				true,
-				iconDisplay,
-			);
+			options.onCompactToolCount?.(result.name, compactToolDetail?.detail);
 		} else {
 			options.onCompactToolCount?.(result.name);
 		}
@@ -334,7 +320,7 @@ const executeAgentBatch = async (
 	addToChatQueue: (component: React.ReactNode) => void,
 	compactDisplay?: boolean,
 	setLiveComponent?: (component: React.ReactNode) => void,
-	onCompactToolCount?: (toolName: string) => void,
+	onCompactToolCount?: (toolName: string, detail?: string) => void,
 	nonInteractiveMode?: boolean,
 	signal?: AbortSignal,
 ): Promise<
@@ -530,7 +516,7 @@ export const executeToolsDirectly = async (
 	addToChatQueue: (component: React.ReactNode) => void,
 	options?: {
 		compactDisplay?: boolean;
-		onCompactToolCount?: (toolName: string) => void;
+		onCompactToolCount?: (toolName: string, detail?: string) => void;
 		onLiveTaskUpdate?: () => void;
 		setLiveComponent?: (component: React.ReactNode) => void;
 		/**

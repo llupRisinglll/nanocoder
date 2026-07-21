@@ -17,6 +17,10 @@ function buildInputJson(data: StatusLineData): string {
 		workspace: data.workspace,
 		git: data.git,
 		context: data.context,
+		context_window: {
+			used_percentage: data.context?.used_percent ?? null,
+		},
+		tune: data.tune,
 		version: data.version,
 	});
 }

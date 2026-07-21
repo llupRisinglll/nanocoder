@@ -8,7 +8,10 @@ import {Colors, parseMarkdown} from '@/markdown-parser/index';
 import type {AssistantReasoningProps} from '@/types/index';
 import {wrapWithTrimmedContinuations} from '@/utils/text-wrapping';
 import {calculateTokens} from '@/utils/token-calculator';
-import {CompactToolCountsLine} from '@/utils/tool-result-display';
+import {
+	type CompactToolActivityMap,
+	CompactToolCountsLine,
+} from '@/utils/tool-result-display';
 
 // Module-level store for reasoning start times, shared across components.
 // StreamingReasoning sets it when reasoning starts; AssistantReasoning reads it.
@@ -137,7 +140,7 @@ export function ThoughtRunSummary({
 	toolCounts,
 }: {
 	totalMs: number;
-	toolCounts?: Record<string, number>;
+	toolCounts?: CompactToolActivityMap;
 }) {
 	const {colors} = useTheme();
 	const nonInteractive = useNonInteractiveRender();

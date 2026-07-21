@@ -10,6 +10,7 @@ import type {
 	LLMClient,
 	Message,
 } from '@/types/core';
+import type {CompactToolActivityMap} from '@/utils/tool-result-display';
 
 export interface UseChatHandlerProps {
 	client: LLMClient | null;
@@ -22,6 +23,7 @@ export interface UseChatHandlerProps {
 	setIsCancelling: (cancelling: boolean) => void;
 
 	addToChatQueue: (component: React.ReactNode) => void;
+	addTransientNotice?: (component: React.ReactNode) => void;
 	abortController: AbortController | null;
 	setAbortController: (controller: AbortController | null) => void;
 	developmentMode?: 'normal' | 'auto-accept' | 'yolo' | 'plan' | 'headless';
@@ -44,8 +46,8 @@ export interface UseChatHandlerProps {
 	// detailed-bash/read-line behaviors react to a mid-session theme switch.
 	iconThemeRef?: React.RefObject<boolean>;
 	compactToolDisplayRef?: React.RefObject<boolean>;
-	onSetCompactToolCounts?: (counts: Record<string, number> | null) => void;
-	compactToolCountsRef?: React.MutableRefObject<Record<string, number>>;
+	onSetCompactToolCounts?: (counts: CompactToolActivityMap | null) => void;
+	compactToolCountsRef?: React.MutableRefObject<CompactToolActivityMap>;
 	onSetLiveTaskList?: (tasks: Task[] | null) => void;
 	setLiveComponent?: (component: React.ReactNode) => void;
 	// Records the API-reported usage of the latest response for the context

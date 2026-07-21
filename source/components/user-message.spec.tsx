@@ -117,7 +117,7 @@ test('UserMessage renders multi-line message', t => {
 });
 
 test('UserMessage collapses expanded custom command prompts by default', t => {
-	const message = `[Executing custom command: /worktree]
+	const message = `[Executing custom command: /worktree purpose: test worktree]
 
 Create a git worktree for parallel feature work.
 
@@ -133,7 +133,7 @@ This should not be echoed into the transcript.`;
 
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /\/worktree/);
+	t.regex(output!, /\/worktree purpose: test worktree/);
 	t.notRegex(output!, /Determine the worktree name/);
 	t.notRegex(output!, /This should not be echoed/);
 });

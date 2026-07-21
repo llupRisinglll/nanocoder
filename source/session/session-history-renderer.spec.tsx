@@ -74,9 +74,34 @@ test('renders tool calls as compact summaries paired with results', t => {
 
 	const output = renderHistory(messages);
 
-	t.regex(output, /read_file/);
+	t.regex(output, /Read/);
 	t.regex(output, /source\/config\/index\.ts/);
 	t.notRegex(output, /failed/);
+});
+
+test('renders a single historical bash call inline with its command', t => {
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			tool_calls: [
+				{
+					id: 'call_1',
+					function: {
+						name: 'execute_bash',
+						arguments: {command: 'cd /tmp/project && npm test'},
+					},
+				},
+			],
+		},
+		{role: 'tool', tool_call_id: 'call_1', name: 'execute_bash', content: 'ok'},
+	];
+
+	const output = renderHistory(messages);
+
+	t.regex(output, /Bash\(cd \/tmp\/project && npm test\)/);
+	t.notRegex(output, /└ cd \/tmp\/project/);
+	t.notRegex(output, /×1/);
 });
 
 test('collapses repeated historical tool calls by name', t => {
@@ -114,7 +139,7 @@ test('collapses repeated historical tool calls by name', t => {
 
 	const output = renderHistory(messages);
 
-	t.regex(output, /execute_bash ×3/);
+	t.regex(output, /Bash ×3/);
 	t.regex(output, /└ ls/);
 	t.regex(output, /… \+2 more commands \(ctrl \+ o to verbose\)/);
 	t.regex(output, /Thought\s+\(ctrl\+r to expand\)/);
@@ -156,7 +181,7 @@ test('combines mixed historical tool groups into one header with latest hint', t
 
 	const output = renderHistory(messages);
 
-	t.regex(output, /execute_bash ×5, write_tasks ×2/);
+	t.regex(output, /Ran Bash ×5 and TodoWrite ×2/);
 	t.regex(output, /└ tasks/);
 	t.regex(output, /… \+1 more call \(ctrl \+ o to verbose\)/);
 	t.regex(output, /Thought\s+\(ctrl\+r to expand\)/);
@@ -185,7 +210,7 @@ test('marks failed tool calls', t => {
 
 	const output = renderHistory(messages);
 
-	t.regex(output, /execute_bash/);
+	t.regex(output, /Bash/);
 	t.regex(output, /failed/);
 	t.regex(output, /ls \/nope/);
 });

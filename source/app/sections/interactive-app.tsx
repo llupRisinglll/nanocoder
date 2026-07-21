@@ -1,26 +1,24 @@
+import {hostname, userInfo} from 'node:os';
+import {basename} from 'node:path';
 import {Box, useInput} from 'ink';
 import React, {useMemo} from 'react';
 import {ChatHistory} from '@/app/components/chat-history';
 import {ChatInput} from '@/app/components/chat-input';
 import {ModalSelectors} from '@/app/components/modal-selectors';
-import {BuiltinStatusLine} from '@/components/BuiltinStatusLine';
 import {FileExplorer} from '@/components/file-explorer';
 import {IdeSelector} from '@/components/ide-selector';
 import PlanReviewPrompt from '@/components/plan-review-prompt';
-import {StatusLine} from '@/components/StatusLine';
-import {loadPreferences} from '@/config/preferences';
 import type {useChatHandler} from '@/hooks/chat-handler';
 import type {AppHandlers} from '@/hooks/useAppHandlers';
 import type {useAppState} from '@/hooks/useAppState';
 import type {useModeHandlers} from '@/hooks/useModeHandlers';
-import {useTerminalRows, useTerminalWidth} from '@/hooks/useTerminalWidth';
+import {useTerminalRows} from '@/hooks/useTerminalWidth';
 import {UIStateProvider} from '@/hooks/useUIState';
 import type {useUserMessageQueue} from '@/hooks/useUserMessageQueue';
 import type {useVSCodeServer} from '@/hooks/useVSCodeServer';
 import {getGitStatusSummarySync} from '@/tools/git/utils';
 import type {ImageAttachment} from '@/types/core';
 import type {RestoredInputDraft, SubmittedInputDraft} from '@/types/hooks';
-import type {StatusLineData} from '@/types/statusline';
 import type {PendingToolApproval} from '@/utils/tool-approval-queue';
 import type {PendingToolConfirmation} from '@/utils/tool-confirm-queue';
 import {displayCompactCountsSummary} from '@/utils/tool-result-display';
@@ -32,6 +30,7 @@ interface InteractiveAppProps {
 	appHandlers: AppHandlers;
 	vscodeServer: ReturnType<typeof useVSCodeServer>;
 	staticComponents: React.ReactNode[];
+	transientNoticeComponents?: React.ReactNode[];
 	liveComponent: React.ReactNode;
 	pendingSubagentApproval: PendingToolApproval | null;
 	handleSubagentToolApproval: (confirmed: boolean) => void;
@@ -67,6 +66,7 @@ export function InteractiveApp({
 	appHandlers,
 	vscodeServer,
 	staticComponents,
+	transientNoticeComponents = [],
 	liveComponent,
 	pendingSubagentApproval,
 	handleSubagentToolApproval,
@@ -252,15 +252,14 @@ export function InteractiveApp({
 		{isActive: cancellable},
 	);
 
-	// Status line — re-read config every render so /statusline changes take
-	// effect immediately. The sync file read is cheap for a small JSON file.
-	const statusLineConfig = loadPreferences().statusLine;
-	const terminalWidth = useTerminalWidth();
 	const terminalRows = useTerminalRows();
-	const statusLineData = useMemo<StatusLineData | null>(() => {
-		if (!statusLineConfig?.enabled) return null;
-
-		let git: StatusLineData['git'];
+	const statusInfo = useMemo(() => {
+		let git:
+			| {
+					branch: string;
+					dirty: boolean;
+			  }
+			| undefined;
 		try {
 			const gs = getGitStatusSummarySync();
 			if (gs) {
@@ -272,44 +271,12 @@ export function InteractiveApp({
 		} catch {}
 
 		return {
-			model: {
-				id: appState.currentModel,
-				display_name: appState.currentModel,
-			},
-			workspace: {
-				current_dir: process.cwd(),
-				project_dir: process.cwd(),
-			},
+			user: userInfo().username,
+			host: hostname().split('.')[0],
+			directory: basename(process.cwd()),
 			git,
-			context: {
-				used_percent: appState.contextPercentUsed,
-			},
-			version: '1.28.1',
 		};
-	}, [statusLineConfig, appState.currentModel, appState.contextPercentUsed]);
-
-	const statusLinePosition = statusLineConfig?.position ?? 'bottom';
-
-	const statusLineElement =
-		statusLineConfig?.enabled && statusLineData ? (
-			statusLineConfig.command ? (
-				<StatusLine
-					command={statusLineConfig.command}
-					data={statusLineData}
-					terminalWidth={terminalWidth}
-					padding={statusLineConfig.padding ?? 0}
-				/>
-			) : (
-				<BuiltinStatusLine
-					model={statusLineData.model}
-					workspace={statusLineData.workspace}
-					git={statusLineData.git}
-					context={statusLineData.context}
-					terminalWidth={terminalWidth}
-					padding={statusLineConfig.padding ?? 0}
-				/>
-			)
-		) : null;
+	}, []);
 
 	// Fullscreen layout if and only if cli.tsx put us on the alternate
 	// screen. Inline mode (--no-alt-screen / alternateScreen:false pref),
@@ -350,6 +317,12 @@ export function InteractiveApp({
 			    viewport above absorbs ALL vertical shrink — without it Yoga
 			    crushes the input box when the transcript is tall. */}
 			<Box flexDirection="column" flexShrink={0}>
+				{transientNoticeComponents.length > 0 && (
+					<Box flexDirection="column" marginBottom={1}>
+						{transientNoticeComponents}
+					</Box>
+				)}
+
 				{appState.planReviewState?.show && (
 					<PlanReviewPrompt
 						onProceed={appHandlers.handlePlanProceed}
@@ -404,9 +377,6 @@ export function InteractiveApp({
 					</Box>
 				)}
 
-				{/* Status line — top position, rendered above the input area */}
-				{statusLinePosition === 'top' && statusLineElement}
-
 				{appState.startChat &&
 					appState.activeMode === null &&
 					!appState.isSettingsMode &&
@@ -454,12 +424,10 @@ export function InteractiveApp({
 								onToggleReasoningExpanded={handleToggleReasoningExpanded}
 								tune={appState.tune}
 								currentModel={appState.currentModel}
+								statusInfo={statusInfo}
 							/>
 						</UIStateProvider>
 					)}
-
-				{/* Status line — bottom position (default), rendered below the input area */}
-				{statusLinePosition === 'bottom' && statusLineElement}
 			</Box>
 		</Box>
 	);
