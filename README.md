@@ -18,27 +18,26 @@ Omnicode exists because switching between CLI coding tools got tiring: one tool 
 
 Omnicode is a fork of [Nano-Collective/nanocoder](https://github.com/Nano-Collective/nanocoder) — not a rewrite, not a clone. It contains everything in Nanocoder, plus changes that haven't been released upstream yet.
 
-New work lands on `rc/*` branches here first, then gets proposed back to the original repo once it's finished and proven: the multiline cursor navigation and dual TUI screen modes work are already merged upstream. Omnicode is where Nanocoder's next release lives before it's a release — the same relationship Neovim has to Vim.
+New work lands on `rc/*` branches here first, then gets proposed back to the original repo once it's finished and proven: multiline cursor navigation, dual TUI screen modes, and session resume/continue flags are already merged upstream. Omnicode is where Nanocoder's next release lives before it's a release — the same relationship Neovim has to Vim.
 
 ## What Omnicode has that Nanocoder doesn't (yet)
 
 | Feature | Upstream status |
 |---|---|
-| Provider config robustness — save no longer wipes providers; startup falls back to a working provider instead of freezing | PR open upstream |
-| Session resume/continue flags (`--resume`/`--continue`) | PR open upstream |
+| Provider config robustness — save no longer wipes providers; startup falls back to a working provider instead of freezing | PR #680 open upstream (`rc/provider-robustness`) |
 | Omnicode theme + chat layout overhaul (rounded input/message boxes, merged tool-activity lines, truncated output previews) | Fork-exclusive: `fork/omnicode-theme` |
-| Statusline position control (`/statusline position top\|bottom`) | Incubating on `rc/statusline` |
+| Statusline position control (`/statusline position top\|bottom`) | Fork-shipped (`rc/statusline`) |
 | Animated working/thinking indicators (`⚙ Working... (12s)`, `⚙ Thought (5s)`) | Incubating on `rc/indicators` |
-| Compact file diff display with inline word highlighting | Incubating on `rc/compact-diff` |
+| Compact file diff display with inline word highlighting | Fork-shipped (`rc/compact-diff`) |
 | Optimized welcome header + conditional tips display | Incubating on `rc/welcome-header` |
 | `$ARGUMENTS` pass-through for commands without declared parameters | Incubating on `rc/arguments-passthrough` |
-| Atomic paste placeholders — cursor can't land inside `[Paste #N]`, backspace removes it whole, chat history shows the real pasted text | Incubating on `rc/paste-placeholders` |
-| Command menu descriptions — completion list shows each command's description, grey unselected rows | Incubating on `rc/command-menu-descriptions` |
-| Tabbed settings dialog — categorized tabs, fuzzy search field, title-shape-aware tab bar | PR open upstream |
-| Anthropic prompt caching — stable/volatile system-prompt split, breakpoint budget on tools + system + messages (≈90% input-token cost cut on cached turns) | Incubating on `rc/provider-network-prompt-arch` |
-| Per-provider tool naming — Claude Code names for Anthropic, Codex names for OpenAI, snake_case for local models; aliases accepted bidirectionally | Incubating on `rc/provider-network-prompt-arch` |
-| Per-model identity prompts, MCP server instructions in system prompt, skills-in-prompt listing + `skill` tool | Incubating on `rc/provider-network-prompt-arch` |
-| Model fallback retry, session-affinity headers, tool-call self-repair, per-turn tool filtering, image detail/file-part/size-guard hardening | Incubating on `rc/provider-network-prompt-arch` |
+| Atomic paste placeholders — cursor can't land inside `[Paste #N]`, backspace removes it whole, chat history shows the real pasted text | Fork-shipped (`rc/paste-placeholders`) |
+| Command menu descriptions — completion list shows each command's description, grey unselected rows | Fork-shipped (`rc/command-menu-descriptions`) |
+| Tabbed settings dialog — categorized tabs, fuzzy search field, title-shape-aware tab bar | PR #687 open upstream (`rc/settings-tabs`) |
+| Anthropic prompt caching — stable/volatile system-prompt split, breakpoint budget on tools + system + messages (≈90% input-token cost cut on cached turns) | Fork-shipped (`rc/provider-network-prompt-arch`) |
+| Per-provider tool naming — Claude Code names for Anthropic, Codex names for OpenAI, snake_case for local models; aliases accepted bidirectionally | Fork-shipped (`rc/provider-network-prompt-arch`) |
+| Per-model identity prompts, MCP server instructions in system prompt, skills-in-prompt listing + `skill` tool | Fork-shipped (`rc/provider-network-prompt-arch`) |
+| Model fallback retry, session-affinity headers, tool-call self-repair, per-turn tool filtering, image detail/file-part/size-guard hardening | Fork-shipped (`rc/provider-network-prompt-arch`) |
 
 #### Previews
 
