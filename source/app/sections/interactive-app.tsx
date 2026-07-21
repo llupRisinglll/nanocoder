@@ -23,9 +23,13 @@ import {isSingleToolProfile, resolveToolProfile} from '@/tools/tool-profiles';
 import type {ImageAttachment} from '@/types/core';
 import type {RestoredInputDraft, SubmittedInputDraft} from '@/types/hooks';
 import type {StatusLineData} from '@/types/statusline';
+import {clickEvents} from '@/utils/terminal-mouse';
 import type {PendingToolApproval} from '@/utils/tool-approval-queue';
 import type {PendingToolConfirmation} from '@/utils/tool-confirm-queue';
-import {displayCompactCountsSummary} from '@/utils/tool-result-display';
+import {
+	displayCompactCountsSummary,
+	getLiveCompactToolExpandHitboxColumns,
+} from '@/utils/tool-result-display';
 
 interface InteractiveAppProps {
 	appState: ReturnType<typeof useAppState>;
@@ -89,7 +93,7 @@ export function InteractiveApp({
 	const [restoredDraft, setRestoredDraft] =
 		React.useState<RestoredInputDraft | null>(null);
 
-	const handleToggleCompactDisplay = () => {
+	const handleToggleCompactDisplay = React.useCallback(() => {
 		const expanding = appState.compactToolDisplay;
 		appState.setCompactToolDisplay(!expanding);
 
@@ -97,16 +101,45 @@ export function InteractiveApp({
 		if (expanding) {
 			const counts = appState.compactToolCountsRef.current;
 			if (Object.keys(counts).length > 0) {
-				displayCompactCountsSummary(counts, appState.addToChatQueue);
+				displayCompactCountsSummary(counts, appState.addToChatQueue, {
+					expanded: true,
+				});
 				appState.compactToolCountsRef.current = {};
 				appState.setCompactToolCounts(null);
 			}
 		}
-	};
+	}, [appState]);
 
 	const handleToggleReasoningExpanded = () => {
 		appState.setReasoningExpanded(!appState.reasoningExpanded);
 	};
+
+	React.useEffect(() => {
+		const hasCompactSummary =
+			appState.compactToolCounts &&
+			Object.keys(appState.compactToolCounts).length > 0;
+		if (!hasCompactSummary) return;
+
+		const hitbox = getLiveCompactToolExpandHitboxColumns(
+			appState.compactToolCounts ?? {},
+			!appState.compactToolDisplay,
+		);
+		if (!hitbox) return;
+
+		const onClick = ({x}: {x: number; y: number}) => {
+			if (x < hitbox.start || x > hitbox.end) return;
+			handleToggleCompactDisplay();
+		};
+
+		clickEvents.on('click', onClick);
+		return () => {
+			clickEvents.off('click', onClick);
+		};
+	}, [
+		appState.compactToolCounts,
+		appState.compactToolDisplay,
+		handleToggleCompactDisplay,
+	]);
 
 	const showModalSelectors =
 		(appState.activeMode !== null &&
@@ -472,7 +505,6 @@ export function InteractiveApp({
 								contextPercentUsed={appState.contextPercentUsed}
 								contextSource={appState.contextSource}
 								sessionName={appState.sessionName || undefined}
-								compactToolCounts={appState.compactToolCounts}
 								compactToolDisplay={appState.compactToolDisplay}
 								liveTaskList={appState.liveTaskList}
 								onToggleCompactDisplay={handleToggleCompactDisplay}

@@ -546,7 +546,7 @@ export function useAppHandlers(props: UseAppHandlersProps): AppHandlers {
 			addResumeNotice(
 				<SuccessMessage
 					key={generateKey('resume-success')}
-					message={`Resumed session: ${session.title}`}
+					message={`Resumed session: ${session.id} (${session.title})`}
 					hideBox={true}
 				/>,
 			);

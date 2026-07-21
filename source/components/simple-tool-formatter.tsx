@@ -2,7 +2,32 @@ import {Box, Text} from 'ink';
 import React from 'react';
 
 import ToolMessage from '@/components/tool-message';
-import {ThemeContext} from '@/hooks/useTheme';
+import {ThemeContext, useTheme} from '@/hooks/useTheme';
+
+export function ToolCallHeader({
+	toolName,
+	detail,
+}: {
+	toolName: string;
+	detail?: string;
+}) {
+	const {colors} = useTheme();
+	const cleanedDetail = detail?.replace(/\s+/g, ' ').trim();
+
+	return (
+		<Text wrap="truncate-end">
+			<Text color={colors.tool}>⚒ </Text>
+			<Text color={colors.primary}>{toolName}</Text>
+			{cleanedDetail && (
+				<>
+					<Text color={colors.secondary}>(</Text>
+					<Text color={colors.text}>{cleanedDetail}</Text>
+					<Text color={colors.secondary}>)</Text>
+				</>
+			)}
+		</Text>
+	);
+}
 
 /**
  * A single `Label: value` row in a tool formatter. A row with an `undefined`
@@ -15,7 +40,7 @@ export interface ToolFormatterRow {
 }
 
 /**
- * Build a formatter for the common tool-output shape: a `⚒ <tool_name>` header
+ * Build a formatter for the common tool-output shape: a `⚒ <tool_name>(...)` header
  * followed by a column of `Label: value` rows, wrapped in a borderless
  * `ToolMessage`. Tools whose output needs richer rendering (syntax-highlighted
  * diffs, colour-coded stats, etc.) should keep their bespoke formatter.
@@ -35,11 +60,13 @@ export function makeSimpleToolFormatter<A>(
 		}
 		const {colors} = themeContext;
 
+		const rows = getRows(args, result);
+		const primaryDetail = rows.find(row => row.value !== undefined)?.value;
 		const messageContent = (
 			<Box flexDirection="column">
-				<Text color={colors.tool}>⚒ {toolName}</Text>
+				<ToolCallHeader toolName={toolName} detail={primaryDetail} />
 
-				{getRows(args, result).map(row =>
+				{rows.map(row =>
 					row.value === undefined ? null : (
 						<Box key={row.label}>
 							<Text color={colors.secondary}>{row.label}: </Text>

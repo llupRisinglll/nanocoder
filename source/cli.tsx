@@ -528,7 +528,7 @@ async function main(): Promise<void> {
 			// screen has no native scrollback, so the terminal's own wheel /
 			// scrollbar can't work — the app must receive wheel events itself.
 			// (Text selection needs Shift+drag while mouse reporting is on.)
-			process.stdout.write('\x1B[?1000h\x1B[?1006h');
+			process.stdout.write('\x1B[?1000h\x1B[?1003h\x1B[?1006h');
 
 			// Wipe the screen on resize BEFORE Ink repaints (this listener is
 			// registered first, so it runs first). When the terminal GROWS,
@@ -544,9 +544,8 @@ async function main(): Promise<void> {
 			// filtered proxy stream: mouse reports are stripped, wheel ticks
 			// are re-emitted on the wheelEvents bus for the chat viewport.
 			const {PassThrough} = await import('node:stream');
-			const {stripMouseSequences, wheelEvents} = await import(
-				'@/utils/terminal-mouse'
-			);
+			const {clickEvents, pointerEvents, stripMouseSequences, wheelEvents} =
+				await import('@/utils/terminal-mouse');
 			const filtered = new PassThrough();
 			let carry = '';
 			const forwardInput = (chunk: Buffer | string) => {
@@ -555,6 +554,12 @@ async function main(): Promise<void> {
 				carry = result.carry;
 				for (const direction of result.wheel) {
 					wheelEvents.emit('wheel', direction);
+				}
+				for (const click of result.clicks) {
+					clickEvents.emit('click', click);
+				}
+				for (const pointer of result.pointers) {
+					pointerEvents.emit('pointer', pointer);
 				}
 				if (result.clean) {
 					filtered.write(result.clean);
@@ -608,7 +613,7 @@ async function main(): Promise<void> {
 			stopInputForwarding?.();
 			if (useAltScreen) {
 				// Mouse reporting off, then back to the main screen buffer.
-				process.stdout.write('\x1B[?1006l\x1B[?1000l\x1B[?1049l');
+				process.stdout.write('\x1B[?1006l\x1B[?1003l\x1B[?1000l\x1B[?1049l');
 			}
 		};
 

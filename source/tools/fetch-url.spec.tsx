@@ -182,6 +182,20 @@ test('validator rejects 172.16-31.x.x URLs', async t => {
 	}
 });
 
+test('formatter renders URL in the tool header parentheses', t => {
+	if (!fetchUrlTool?.formatter) {
+		t.pass('Skipping test - fetch-url module not available');
+		return;
+	}
+
+	const component = fetchUrlTool.formatter({url: 'https://example.com/docs'});
+	const {lastFrame} = render(<MockThemeProvider>{component}</MockThemeProvider>);
+
+	const output = lastFrame();
+	t.truthy(output);
+	t.regex(output!, /fetch_url\(https:\/\/example\.com\/docs\)/);
+});
+
 test('validator accepts external IP addresses', async t => {
 	if (!fetchUrlTool) {
 		t.pass('Skipping test - fetch-url module not available');

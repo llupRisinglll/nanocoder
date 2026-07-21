@@ -5,6 +5,7 @@ test('passes plain text through untouched', t => {
 	const r = stripMouseSequences('hello world');
 	t.is(r.clean, 'hello world');
 	t.deepEqual(r.wheel, []);
+	t.deepEqual(r.pointers, []);
 	t.is(r.carry, '');
 });
 
@@ -12,12 +13,30 @@ test('strips wheel events and reports direction', t => {
 	const r = stripMouseSequences('\x1b[<64;10;5Mabc\x1b[<65;10;5M');
 	t.is(r.clean, 'abc');
 	t.deepEqual(r.wheel, ['up', 'down']);
+	t.deepEqual(r.clicks, []);
+	t.deepEqual(r.pointers, []);
+});
+
+test('strips pointer motion and reports coordinates', t => {
+	const r = stripMouseSequences('\x1b[<35;42;11Mtyped');
+	t.is(r.clean, 'typed');
+	t.deepEqual(r.wheel, []);
+	t.deepEqual(r.clicks, []);
+	t.deepEqual(r.pointers, [{x: 42, y: 11}]);
 });
 
 test('strips click press/release without emitting wheel', t => {
 	const r = stripMouseSequences('\x1b[<0;3;4M\x1b[<0;3;4mtyped');
 	t.is(r.clean, 'typed');
 	t.deepEqual(r.wheel, []);
+	t.deepEqual(r.clicks, [{x: 3, y: 4}]);
+});
+
+test('modified primary click is reported with coordinates', t => {
+	const r = stripMouseSequences('\x1b[<4;12;9M');
+	t.is(r.clean, '');
+	t.deepEqual(r.wheel, []);
+	t.deepEqual(r.clicks, [{x: 12, y: 9}]);
 });
 
 test('wheel with modifier bits still detected', t => {

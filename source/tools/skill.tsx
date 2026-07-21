@@ -1,5 +1,6 @@
 import {Box, Text} from 'ink';
 import React from 'react';
+import {ToolCallHeader} from '@/components/simple-tool-formatter';
 import ToolMessage from '@/components/tool-message';
 import {ThemeContext} from '@/hooks/useTheme';
 import {formatSkillDetails} from '@/skills/prompt';
@@ -49,7 +50,7 @@ const SkillFormatter = React.memo(({args, result}: SkillFormatterProps) => {
 
 	const messageContent = (
 		<Box flexDirection="column">
-			<Text color={colors.tool}>⚒ skill</Text>
+			<ToolCallHeader toolName="skill" detail={args.name} />
 			<Box>
 				<Text color={colors.secondary}>Skill: </Text>
 				<Text color={colors.text}>{args.name}</Text>

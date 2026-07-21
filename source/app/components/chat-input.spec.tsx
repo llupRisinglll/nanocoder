@@ -187,27 +187,15 @@ test('ChatInput does not show question prompt when not in question mode', t => {
 	unmount();
 });
 
-test('ChatInput shows live compact counts when compactToolCounts provided', t => {
+test('ChatInput does not render compact counts in the input footer', t => {
 	const props = createDefaultProps({
-		compactToolCounts: {read_file: 5, search_file_contents: 2},
+		liveTaskList: null,
 	});
 
 	const {lastFrame, unmount} = renderWithTheme(<ChatInput {...props} />);
 	const output = lastFrame();
 	t.truthy(output);
-	t.regex(output!, /Running Read ×5 and Grep ×2/);
-	unmount();
-});
-
-test('ChatInput does not show compact counts when null', t => {
-	const props = createDefaultProps({
-		compactToolCounts: null,
-	});
-
-	const {lastFrame, unmount} = renderWithTheme(<ChatInput {...props} />);
-	const output = lastFrame();
-	t.truthy(output);
-	t.notRegex(output!, /Read.*files/);
+	t.notRegex(output!, /Running Read/);
 	unmount();
 });
 

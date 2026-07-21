@@ -1450,7 +1450,50 @@ test.serial(
 		);
 		t.is(thoughtSummaries.length, 1);
 		t.deepEqual(thoughtSummaries[0].props.toolCounts, {execute_bash: 3});
+		t.is(thoughtSummaries[0].props.toolCountsExpanded, false);
 		t.deepEqual(compactToolCountsRef.current, {});
+	},
+);
+
+test.serial(
+	'processAssistantResponse - omnicode ThoughtRunSummary respects expanded compact tool display',
+	async t => {
+		resetLastTurnHadReasoning();
+		resetPendingThoughtAccumulator();
+
+		const queuedComponents: any[] = [];
+		const compactToolCountsRef = {
+			current: {
+				execute_bash: {
+					count: 2,
+					details: ['first command', 'last command'],
+				},
+			},
+		};
+		const params = createDefaultParams({
+			client: createMockClient({
+				content: 'All done!',
+				reasoning: 'Let me summarise the results.',
+				toolCalls: undefined,
+				toolsDisabled: false,
+			}),
+			addToChatQueue: (component: any) => {
+				queuedComponents.push(component);
+			},
+			compactToolCountsRef,
+			compactToolDisplayRef: {current: false},
+			onSetCompactToolCounts: () => {},
+			iconThemeRef: {current: true},
+			reasoningExpandedRef: {current: false},
+		});
+
+		await processAssistantResponse(params);
+
+		const thoughtSummaries = queuedComponents.filter((c: any) =>
+			String(c.key).includes('thought-run-summary'),
+		);
+		t.is(thoughtSummaries.length, 1);
+		t.is(thoughtSummaries[0].props.toolCountsExpanded, true);
 	},
 );
 

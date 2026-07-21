@@ -1,5 +1,6 @@
 import {Box, Text} from 'ink';
 import React from 'react';
+import {ToolCallHeader} from '@/components/simple-tool-formatter';
 import ToolMessage from '@/components/tool-message';
 import {ThemeContext} from '@/hooks/useTheme';
 import {checkSkillBundle, formatSkillCheckReport} from '@/skills/check';
@@ -60,7 +61,7 @@ const CheckSkillFormatter = React.memo(
 
 		const messageContent = (
 			<Box flexDirection="column">
-				<Text color={colors.tool}>⚒ check_skill</Text>
+				<ToolCallHeader toolName="check_skill" detail={args.name} />
 
 				<Box>
 					<Text color={colors.secondary}>Skill: </Text>

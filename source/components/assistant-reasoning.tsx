@@ -10,7 +10,7 @@ import {wrapWithTrimmedContinuations} from '@/utils/text-wrapping';
 import {calculateTokens} from '@/utils/token-calculator';
 import {
 	type CompactToolActivityMap,
-	CompactToolCountsLine,
+	CompactToolCountsSummaryBlock,
 } from '@/utils/tool-result-display';
 
 // Module-level store for reasoning start times, shared across components.
@@ -138,9 +138,11 @@ export default function AssistantReasoning({
 export function ThoughtRunSummary({
 	totalMs,
 	toolCounts,
+	toolCountsExpanded = false,
 }: {
 	totalMs: number;
 	toolCounts?: CompactToolActivityMap;
+	toolCountsExpanded?: boolean;
 }) {
 	const {colors} = useTheme();
 	const nonInteractive = useNonInteractiveRender();
@@ -153,9 +155,11 @@ export function ThoughtRunSummary({
 	return (
 		<Box flexDirection="column" marginBottom={1}>
 			{toolEntries.length > 0 && (
-				<Box>
-					<CompactToolCountsLine entries={toolEntries} />
-				</Box>
+				<CompactToolCountsSummaryBlock
+					entries={toolEntries}
+					expanded={toolCountsExpanded}
+					indent={false}
+				/>
 			)}
 			<Box paddingLeft={2}>
 				<Text color={colors.secondary}>
