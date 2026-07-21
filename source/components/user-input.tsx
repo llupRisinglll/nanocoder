@@ -906,6 +906,13 @@ export default function UserInput({
 
 		return {start, end, items: completions.slice(start, end)};
 	}, [completions, selectedCompletionIndex]);
+	const slashCommandNames = useMemo(
+		() => [
+			...commandRegistry.getAll().map(command => command.name),
+			...customCommands.map(command => command.name),
+		],
+		[customCommands],
+	);
 
 	// Shared name-column width so every visible row's description starts at
 	// the same offset, like openclaude's completion menu. Sized off the full
@@ -1094,6 +1101,8 @@ export default function UserInput({
 						focus={effectiveFocus}
 						wrapWidth={inputWrapWidth}
 						handleEnter={false}
+						slashCommandColor={colors.info}
+						slashCommandNames={slashCommandNames}
 					/>
 				</Box>
 

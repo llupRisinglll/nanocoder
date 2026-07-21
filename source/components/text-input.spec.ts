@@ -3,6 +3,7 @@ import {
 	getVisualLineSegments,
 	moveCursorToVisualLine,
 } from '../utils/text-wrapping';
+import {getSlashCommandRanges} from './text-input.js';
 
 /**
  * Tests for readline keybind logic in the custom TextInput component.
@@ -15,6 +16,36 @@ interface TextInputState {
 	value: string;
 	cursorOffset: number;
 }
+
+test('getSlashCommandRanges highlights a leading slash command token', t => {
+	t.deepEqual(getSlashCommandRanges('/worktree create'), [
+		{
+			start: 0,
+			end: '/worktree'.length,
+		},
+	]);
+});
+
+test('getSlashCommandRanges does not highlight a valid slash command inside text', t => {
+	t.deepEqual(
+		getSlashCommandRanges(
+			'I want you to run /worktree create',
+			new Set(['worktree']),
+		),
+		[],
+	);
+});
+
+test('getSlashCommandRanges ignores unknown slash tokens when valid names are provided', t => {
+	t.deepEqual(
+		getSlashCommandRanges('/unknown', new Set(['worktree'])),
+		[],
+	);
+});
+
+test('getSlashCommandRanges avoids path segments without whitespace before slash', t => {
+	t.deepEqual(getSlashCommandRanges('source/app/worktree', new Set(['app'])), []);
+});
 
 // Simulate Ctrl+W: backward-kill-word (newlines are word boundaries)
 function backwardKillWord(state: TextInputState): TextInputState {
@@ -526,5 +557,4 @@ test('handleEnter=true calls onSubmit when onEnter not provided', (t) => {
 	if (true && undefined) {} else if (true && onSubmit) onSubmit();
 	t.true(called);
 });
-
 
