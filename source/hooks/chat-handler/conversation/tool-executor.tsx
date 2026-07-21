@@ -3,7 +3,7 @@ import type {ConversationStateManager} from '@/app/utils/conversation-state';
 import AgentProgress, {MultiAgentProgress} from '@/components/agent-progress';
 import BashProgress from '@/components/bash-progress';
 import {ErrorMessage} from '@/components/message-box';
-import type {BashExecutionState} from '@/services/bash-executor';
+import {type BashExecutionState, bashExecutor} from '@/services/bash-executor';
 import {
 	clearAllSubagentProgress,
 	getSubagentProgress,
@@ -67,6 +67,7 @@ const executeBashStreaming = async (
 	toolManager: ToolManager | null,
 	setLiveComponent: (component: React.ReactNode) => void,
 	signal?: AbortSignal,
+	onStarted?: (executionId: string, command: string) => void,
 ): Promise<StreamingBashRun> => {
 	const execution = await runStreamingBashTool(
 		toolCall,
@@ -74,6 +75,7 @@ const executeBashStreaming = async (
 		setLiveComponent,
 		'direct-bash',
 		signal,
+		onStarted,
 	);
 	return {...execution, toolCall};
 };
@@ -83,7 +85,7 @@ export interface ToolDisplayOptions {
 	compactDisplay?: boolean;
 	onCompactToolCount?: (
 		toolName: string,
-		detail?: string,
+		detail?: string | string[],
 		failed?: boolean,
 	) => void;
 	onLiveTaskUpdate?: () => void;
@@ -115,6 +117,66 @@ export interface ToolDisplayOptions {
 	previewExpandedRef?: React.RefObject<boolean>;
 }
 
+const formatAgentProgressTail = (
+	agentName: string,
+	description: string,
+	progress: ReturnType<typeof getSubagentProgress>,
+): string[] => {
+	const details: string[] = [];
+	const statusParts: string[] = [];
+	if (progress.currentTool) {
+		statusParts.push(`running ${progress.currentTool}`);
+	} else if (progress.status === 'running') {
+		statusParts.push('thinking');
+	} else if (progress.status === 'complete') {
+		statusParts.push('complete');
+	} else if (progress.status === 'error') {
+		statusParts.push('error');
+	}
+	if (progress.toolCallCount > 0) {
+		statusParts.push(
+			`${progress.toolCallCount} tool call${progress.toolCallCount === 1 ? '' : 's'}`,
+		);
+	}
+	if (progress.tokenCount > 0) {
+		statusParts.push(`~${progress.tokenCount.toLocaleString()} tokens`);
+	}
+
+	details.push(
+		statusParts.length > 0
+			? `${agentName}: ${statusParts.join(' · ')}`
+			: `${agentName}: ${description}`,
+	);
+
+	for (const toolName of progress.toolHistory.slice(-3)) {
+		details.push(`${agentName} → ${toolName}`);
+	}
+
+	return details;
+};
+
+const formatBashProgressTail = (
+	command: string,
+	executionId: string,
+): string[] => {
+	const state = bashExecutor.getState(executionId);
+	if (!state) return [command];
+
+	const lines: string[] = [];
+	const output = state.outputPreview || state.stderr;
+	if (output.trim()) {
+		lines.push(...output.trimEnd().split(/\r?\n/).slice(-3));
+	} else if (state.error) {
+		lines.push(`Error: ${state.error}`);
+	} else if (state.isComplete) {
+		lines.push(`EXIT_CODE: ${state.exitCode ?? 'unknown'}`);
+	} else {
+		lines.push(command);
+	}
+
+	return lines;
+};
+
 /**
  * Execute a single already-approved tool call. execute_bash streams through the
  * live BashProgress when a live area is available; everything else runs through
@@ -127,6 +189,7 @@ export const executeApprovedTool = (
 	processToolUse: (toolCall: ToolCall) => Promise<ToolResult>,
 	setLiveComponent?: (component: React.ReactNode) => void,
 	signal?: AbortSignal,
+	onBashStarted?: (executionId: string, command: string) => void,
 ): Promise<StreamingBashRun | {toolCall: ToolCall; result: ToolResult}> => {
 	if (toolCall.function.name === 'execute_bash' && setLiveComponent) {
 		return executeBashStreaming(
@@ -134,6 +197,7 @@ export const executeApprovedTool = (
 			toolManager,
 			setLiveComponent,
 			signal,
+			onBashStarted,
 		);
 	}
 	return executeOne(toolCall, processToolUse);
@@ -337,9 +401,10 @@ const executeAgentBatch = async (
 	setLiveComponent?: (component: React.ReactNode) => void,
 	onCompactToolCount?: (
 		toolName: string,
-		detail?: string,
+		detail?: string | string[],
 		failed?: boolean,
 	) => void,
+	onRunningToolCounts?: (counts: CompactToolActivityMap | null) => void,
 	nonInteractiveMode?: boolean,
 	signal?: AbortSignal,
 ): Promise<
@@ -388,8 +453,36 @@ const executeAgentBatch = async (
 		return {toolCall, agentId, agentName, agentDesc, promise};
 	});
 
+	if (compactDisplay && !nonInteractiveMode && onRunningToolCounts) {
+		const counts: CompactToolActivityMap = {};
+		for (const e of agentExecutions) {
+			const current = counts[e.toolCall.function.name];
+			const currentActivity =
+				typeof current === 'number' ? {count: current} : current;
+			counts[e.toolCall.function.name] = {
+				count: (currentActivity?.count ?? 0) + 1,
+				details: [
+					...(currentActivity?.details ?? []),
+					`${e.agentName}: ${e.agentDesc}`,
+				],
+				liveDetails: () =>
+					formatAgentProgressTail(
+						e.agentName,
+						e.agentDesc,
+						getSubagentProgress(e.agentId),
+					),
+				running: true,
+			};
+		}
+		onRunningToolCounts(counts);
+	}
+
 	// Show live progress
-	if (setLiveComponent && agentExecutions.length > 0) {
+	if (
+		setLiveComponent &&
+		agentExecutions.length > 0 &&
+		(!compactDisplay || nonInteractiveMode)
+	) {
 		const agentInfos = agentExecutions.map(e => ({
 			agentId: e.agentId,
 			subagentName: e.agentName,
@@ -477,7 +570,11 @@ const executeAgentBatch = async (
 						true,
 					);
 				} else {
-					onCompactToolCount?.(result.name, undefined, true);
+					onCompactToolCount?.(
+						result.name,
+						formatAgentProgressTail(e.agentName, e.agentDesc, progress),
+						true,
+					);
 				}
 			} else if (nonInteractiveMode) {
 				await displayToolResult(
@@ -488,7 +585,10 @@ const executeAgentBatch = async (
 					true,
 				);
 			} else {
-				onCompactToolCount?.(result.name);
+				onCompactToolCount?.(
+					result.name,
+					formatAgentProgressTail(e.agentName, e.agentDesc, progress),
+				);
 			}
 		} else {
 			addToChatQueue(
@@ -542,7 +642,7 @@ export const executeToolsDirectly = async (
 		compactDisplay?: boolean;
 		onCompactToolCount?: (
 			toolName: string,
-			detail?: string,
+			detail?: string | string[],
 			failed?: boolean,
 		) => void;
 		onLiveTaskUpdate?: () => void;
@@ -613,7 +713,6 @@ export const executeToolsDirectly = async (
 			// Parallel execution for consecutive agent tools
 			// Note: The promise resolves with the raw agent result. We return the
 			// ORIGINAL toolCall (with placeholders) to preserve history.
-			showRunningGroup(group);
 			const agentResults = await (async () => {
 				try {
 					return await executeAgentBatch(
@@ -623,6 +722,7 @@ export const executeToolsDirectly = async (
 						options?.compactDisplay,
 						options?.setLiveComponent,
 						options?.onCompactToolCount,
+						options?.onRunningToolCounts,
 						options?.nonInteractiveMode,
 						options?.signal,
 					);
@@ -663,6 +763,24 @@ export const executeToolsDirectly = async (
 						processToolUse,
 						options?.setLiveComponent,
 						options?.signal,
+						(executionId, command) => {
+							if (
+								!options?.compactDisplay ||
+								!options.onRunningToolCounts ||
+								options.nonInteractiveMode
+							) {
+								return;
+							}
+							options.onRunningToolCounts({
+								execute_bash: {
+									count: 1,
+									details: [command],
+									liveDetails: () =>
+										formatBashProgressTail(command, executionId),
+									running: true,
+								},
+							});
+						},
 					),
 				);
 			}

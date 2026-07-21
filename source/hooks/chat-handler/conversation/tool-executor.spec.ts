@@ -288,6 +288,48 @@ test('displayExecutedTool - omnicode non-interactive execute_bash renders comman
 	unmount();
 });
 
+test.serial(
+	'executeToolsDirectly - compact bash exposes live tail while running',
+	async t => {
+		const runningCounts: unknown[] = [];
+		const compactCounts: Array<[string, string | string[] | undefined]> = [];
+		const command = "printf 'start\\n'; sleep 0.05; printf 'done\\n'";
+
+		const results = await executeToolsDirectly(
+			[
+				{
+					id: 'call_bash_live_tail',
+					function: {
+						name: 'execute_bash',
+						arguments: JSON.stringify({command}),
+					},
+				},
+			],
+			createMockToolManager() as any,
+			createMockConversationStateManager() as any,
+			() => {},
+			{
+				compactDisplay: true,
+				setLiveComponent: () => {},
+				onRunningToolCounts: counts => {
+					if (counts) runningCounts.push(counts);
+				},
+				onCompactToolCount: (toolName, detail) => {
+					compactCounts.push([toolName, detail]);
+				},
+			},
+		);
+
+		t.is(results.length, 1);
+		t.true(runningCounts.length > 0);
+		const firstRunning = runningCounts[0] as Record<string, any>;
+		t.is(firstRunning.execute_bash.count, 1);
+		t.deepEqual(firstRunning.execute_bash.details, [command]);
+		t.deepEqual(firstRunning.execute_bash.liveDetails(), [command]);
+		t.deepEqual(compactCounts, [['execute_bash', command]]);
+	},
+);
+
 test('executeToolsDirectly - executes multiple read-only tools in parallel', async t => {
 	const toolCalls: ToolCall[] = [
 		{
@@ -941,6 +983,100 @@ test.serial(
 			results[0].content.includes('Aborted'),
 			`expected 'Aborted' in content, got: ${results[0].content}`,
 		);
+	},
+);
+
+test.serial(
+	'executeToolsDirectly - compact agent exposes live tail and final details',
+	async t => {
+		const {setAgentToolExecutor} = await import('@/tools/agent-tool');
+		const {appendSubagentTool, updateSubagentProgressById} = await import(
+			'@/services/subagent-events'
+		);
+
+		let releaseAgent!: () => void;
+		const agentMayComplete = new Promise<void>(resolve => {
+			releaseAgent = resolve;
+		});
+
+		setAgentToolExecutor({
+			execute: async (
+				task: {subagent_type: string},
+				_signal?: AbortSignal,
+				_depth?: number,
+				agentId?: string,
+			) => {
+				t.truthy(agentId);
+				updateSubagentProgressById(agentId!, {
+					subagentName: task.subagent_type,
+					status: 'tool_call',
+					currentTool: 'read_file',
+					toolCallCount: 1,
+					turnCount: 1,
+					tokenCount: 42,
+				});
+				appendSubagentTool(agentId, 'read_file');
+				await agentMayComplete;
+				return {
+					subagentName: task.subagent_type,
+					output: 'ok',
+					success: true,
+					executionTimeMs: 1,
+				};
+			},
+		} as never);
+
+		const runningCounts: unknown[] = [];
+		const compactCounts: Array<{toolName: string; detail?: string | string[]}> =
+			[];
+		const run = executeToolsDirectly(
+			[
+				{
+					id: 'call_agent_compact',
+					function: {
+						name: 'agent',
+						arguments: JSON.stringify({
+							subagent_type: 'explore',
+							description: 'inspect repository',
+						}),
+					},
+				},
+			],
+			createMockToolManager() as any,
+			createMockConversationStateManager() as any,
+			() => {},
+			{
+				compactDisplay: true,
+				onRunningToolCounts: counts => {
+					if (counts) runningCounts.push(counts);
+				},
+				onCompactToolCount: (toolName, detail) => {
+					compactCounts.push({toolName, detail});
+				},
+			},
+		);
+
+		await delay(20);
+		t.true(runningCounts.length > 0);
+		const latestRunning = runningCounts.at(-1) as Record<string, any>;
+		const liveDetails = latestRunning.agent.liveDetails();
+		t.deepEqual(liveDetails, [
+			'explore: running read_file · 1 tool call · ~42 tokens',
+			'explore → read_file',
+		]);
+
+		releaseAgent();
+		await run;
+
+		t.deepEqual(compactCounts, [
+			{
+				toolName: 'agent',
+				detail: [
+					'explore: running read_file · 1 tool call · ~42 tokens',
+					'explore → read_file',
+				],
+			},
+		]);
 	},
 );
 
