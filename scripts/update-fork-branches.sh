@@ -6,6 +6,12 @@
 # runs a build/type-check verification pass, and force-pushes the result
 # (with --force-with-lease) if everything looks clean.
 #
+# This script only syncs branch bases. It does not change README status
+# language and it does not replace the fork-main dogfood merge: every active
+# rc/* branch stays labeled "Incubating on `rc/<feature>`" in README.md and
+# should also be merged into fork main via `scripts/fork-flow.sh ship <branch>`
+# so Omnicode users test the branch before it is proposed/updated upstream.
+#
 # Branch map:
 #   - every local rc/*                -> rebase onto upstream/main
 #   - fork/omnicode-identity           -> rebase onto upstream/main
