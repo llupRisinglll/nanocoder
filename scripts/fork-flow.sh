@@ -571,15 +571,15 @@ cmd_status() {
 		case "$row" in
 		'| Feature'* | '|---'*) continue ;;
 		esac
-		if [[ "$row" =~ Incubating\ on\ \`(rc/[A-Za-z0-9_-]+)\` ]]; then
+		if [[ "$row" =~ \`(rc/[A-Za-z0-9_-]+)\` ]]; then
 			local rc_branch="${BASH_REMATCH[1]}"
 			referenced_branches="${referenced_branches:+$referenced_branches }$rc_branch"
 			pr=$(open_upstream_pr "$rc_branch")
-			if [ -n "$pr" ]; then
+			if [[ "$row" =~ Incubating\ on ]] && [ -n "$pr" ]; then
 				echo "WARN (c): README row says 'Incubating on \`$rc_branch\`' but PR #$pr is open upstream -- update to 'PR open upstream'."
 				ok_c=0
 			fi
-			if branch_exists "$rc_branch" && [ "$(git rev-list --count "origin/main..$rc_branch" 2>/dev/null || echo 0)" -eq 0 ] \
+			if [[ "$row" =~ Incubating\ on ]] && branch_exists "$rc_branch" && [ "$(git rev-list --count "origin/main..$rc_branch" 2>/dev/null || echo 0)" -eq 0 ] \
 				&& [ "$(git rev-list --count "$rc_branch..upstream/main" 2>/dev/null || echo 1)" -gt 0 ]; then
 				echo "WARN (c): README row for '$rc_branch' looks stale (no unique commits vs main) -- may need dropping."
 				ok_c=0
