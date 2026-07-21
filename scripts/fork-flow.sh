@@ -301,6 +301,28 @@ require_clean_main() {
 	fi
 }
 
+update_main_checkout() {
+	log "Updating main checkout ($MAIN_WORKDIR)"
+	if [ "$DRY_RUN" -eq 1 ]; then
+		echo "[dry-run] git -C $MAIN_WORKDIR switch main"
+		echo "[dry-run] git -C $MAIN_WORKDIR pull --ff-only origin main"
+		if [ "$NO_BUILD" -eq 0 ]; then
+			echo "[dry-run] (cd $MAIN_WORKDIR && pnpm run build)"
+		fi
+		return 0
+	fi
+
+	local current_branch
+	current_branch="$(git -C "$MAIN_WORKDIR" branch --show-current || true)"
+	if [ "$current_branch" != "main" ]; then
+		git -C "$MAIN_WORKDIR" switch main
+	fi
+	git -C "$MAIN_WORKDIR" pull --ff-only origin main
+	if [ "$NO_BUILD" -eq 0 ]; then
+		(cd "$MAIN_WORKDIR" && pnpm run build)
+	fi
+}
+
 # is tag $1 an ancestor-or-equal of ref $2?
 tag_reaches() {
 	git merge-base --is-ancestor "$1" "$2" 2>/dev/null
@@ -734,15 +756,7 @@ cmd_ship() {
 
 	run gh pr merge "$pr_num" -R "$FORK_REPO" --merge
 
-	log "Updating main checkout ($MAIN_WORKDIR)"
-	run git -C "$MAIN_WORKDIR" pull --ff-only
-	if [ "$NO_BUILD" -eq 0 ]; then
-		if [ "$DRY_RUN" -eq 1 ]; then
-			echo "[dry-run] (cd $MAIN_WORKDIR && pnpm run build)"
-		else
-			(cd "$MAIN_WORKDIR" && pnpm run build)
-		fi
-	fi
+	update_main_checkout
 }
 
 # ---------------------------------------------------------------------------
@@ -989,15 +1003,7 @@ cmd_merged() {
 	fi
 	cleanup_temp_worktree
 
-	log "Updating main checkout ($MAIN_WORKDIR)"
-	run git -C "$MAIN_WORKDIR" pull --ff-only
-	if [ "$NO_BUILD" -eq 0 ]; then
-		if [ "$DRY_RUN" -eq 1 ]; then
-			echo "[dry-run] (cd $MAIN_WORKDIR && pnpm run build)"
-		else
-			(cd "$MAIN_WORKDIR" && pnpm run build)
-		fi
-	fi
+	update_main_checkout
 
 	echo ""
 	echo "REMINDER: drop the README differences-table row for this feature"
