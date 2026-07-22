@@ -356,6 +356,11 @@ export function useChatHandler({
 			() => getInnerDaemonModel() ?? undefined,
 		);
 		engine.bindExecutor(executor);
+		// Same resolver, so the verbose/trigger trace can report which model the
+		// InnerDaemon thinker uses (visible when a custom model is configured).
+		engine.setInnerDaemonModelResolver(
+			() => getInnerDaemonModel() ?? undefined,
+		);
 		innerdaemonBoundRef.current = true;
 	}, [client, toolManager, developmentModeRef]);
 

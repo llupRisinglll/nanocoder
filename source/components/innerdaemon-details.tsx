@@ -16,6 +16,11 @@ export interface InnerDaemonDetailsProps {
 	 * (which steering rule fired). Omit for a cleaner look.
 	 */
 	ruleId?: string;
+	/**
+	 * Optional InnerDaemon model shown after the rule id, so a customized
+	 * InnerDaemon model is visible on every nudge/block. Omit to hide.
+	 */
+	model?: string;
 }
 
 /**
@@ -39,6 +44,7 @@ export default function InnerDaemonDetails({
 	message,
 	urgency = 'light',
 	ruleId,
+	model,
 }: InnerDaemonDetailsProps) {
 	const {colors} = useTheme();
 	const boxWidth = useTerminalWidth();
@@ -73,6 +79,7 @@ export default function InnerDaemonDetails({
 			<Box paddingLeft={2}>
 				<Text color={glyphColor}>{'◆'} InnerDaemon</Text>
 				{ruleId && <Text color={colors.secondary}> · {ruleId}</Text>}
+				{model && <Text color={colors.secondary}> · {model}</Text>}
 				{urgency === 'firm' && <Text color={colors.warning}> (steering)</Text>}
 			</Box>
 			<Box flexDirection="column" marginLeft={2}>

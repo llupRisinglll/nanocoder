@@ -101,6 +101,7 @@ function escalateAction(action: SteeringAction, level: number): SteeringAction {
 			message: action.message,
 			urgency: 'firm',
 			ruleId: action.ruleId,
+			model: action.model,
 		};
 	}
 	if (level >= 1) {
@@ -145,6 +146,13 @@ export class SteeringEngine {
 	private readonly checker: SuccessCriterionChecker;
 	private innerdaemon: InnerDaemonInvoker;
 	private state: EngineState = {fires: new Map()};
+	/**
+	 * Resolver for InnerDaemon's configured thinker model (the same one wired to
+	 * the executor's model override). Returns undefined/empty to mean "inherit
+	 * the session model". Used only to SURFACE the model in the diagnostic — the
+	 * executor still owns the real resolution.
+	 */
+	private innerDaemonModelResolver?: () => string | null | undefined;
 
 	constructor(opts: SteeringEngineOptions) {
 		this.rules = opts.rules;
@@ -176,6 +184,20 @@ export class SteeringEngine {
 	/** Replace the active model id (call when the user switches models). */
 	setModelId(modelId: string): void {
 		this.modelId = modelId;
+	}
+
+	/**
+	 * Wire the InnerDaemon-model resolver (same source the executor's model
+	 * override reads) so the diagnostic can report which model the thinker uses.
+	 */
+	setInnerDaemonModelResolver(resolver: () => string | null | undefined): void {
+		this.innerDaemonModelResolver = resolver;
+	}
+
+	/** Effective InnerDaemon thinker model: configured override, else inherit. */
+	private innerDaemonModelId(): string {
+		const configured = this.innerDaemonModelResolver?.();
+		return configured && configured.length > 0 ? configured : this.modelId;
 	}
 
 	/** Replace the loaded rules (call after a config reload). */
@@ -221,7 +243,11 @@ export class SteeringEngine {
 		}
 
 		// 1. Instant hard-constraint violations (detector-only, no budget).
-		const violation = detectConstraintViolations(facts, this.rules);
+		const violation = detectConstraintViolations(
+			facts,
+			this.rules,
+			this.modelId,
+		);
 		if (violation) {
 			logger.info('steering: constraint violation → block', {
 				ruleId: violation.rule.id,
@@ -234,6 +260,7 @@ export class SteeringEngine {
 				message: violation.constraint.message,
 				urgency: 'light',
 				ruleId: violation.rule.id,
+				model: this.innerDaemonModelId(),
 			};
 		}
 
@@ -286,6 +313,12 @@ export class SteeringEngine {
 			budgetUsed: inScope?.budgetUsed ?? 0,
 			budgetMax: inScope?.budgetMax ?? 0,
 			decision,
+			// Only innerdaemon-mode rules invoke the LLM thinker (the lag path);
+			// surface the model they'd use so a custom InnerDaemon model is visible.
+			innerDaemonModel:
+				inScope?.rule.mode === 'innerdaemon'
+					? this.innerDaemonModelId()
+					: undefined,
 		};
 	}
 
@@ -325,6 +358,7 @@ export class SteeringEngine {
 				message: rule.body ?? '',
 				urgency: 'light',
 				ruleId: rule.id,
+				model: this.innerDaemonModelId(),
 			};
 		}
 
@@ -360,6 +394,7 @@ export class SteeringEngine {
 					message: this.detectorOnlyMessage(rule, candidate),
 					urgency: 'light',
 					ruleId: rule.id,
+					model: this.innerDaemonModelId(),
 				},
 				escalationLevel,
 			);
@@ -373,7 +408,7 @@ export class SteeringEngine {
 		// which steering script fired (noop/stop carry no header).
 		const action: SteeringAction =
 			raw.type === 'inject' || raw.type === 'block'
-				? {...raw, ruleId: rule.id}
+				? {...raw, ruleId: rule.id, model: this.innerDaemonModelId()}
 				: raw;
 
 		// Only count a fire if InnerDaemon actually steered (noop doesn't consume

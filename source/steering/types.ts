@@ -282,6 +282,8 @@ export type SteeringAction =
 			urgency?: SteeringUrgency;
 			/** Steering rule that produced this action, for the trace header. */
 			ruleId?: string;
+			/** Effective InnerDaemon model, shown on the `◆ InnerDaemon` header. */
+			model?: string;
 	  }
 	| {
 			type: 'block';
@@ -291,6 +293,8 @@ export type SteeringAction =
 			urgency?: SteeringUrgency;
 			/** Steering rule that produced this action, for the trace header. */
 			ruleId?: string;
+			/** Effective InnerDaemon model, shown on the `◆ InnerDaemon` header. */
+			model?: string;
 	  }
 	| {type: 'stop'; reason: string};
 
@@ -365,6 +369,14 @@ export interface SteeringDiagnostic {
 	budgetMax: number;
 	/** The action the engine actually chose this turn. */
 	decision: 'noop' | 'nudge' | 'block' | 'stop';
+	/**
+	 * The model the InnerDaemon secondary thinker would run on for the in-scope
+	 * rule — set ONLY when that rule is `innerdaemon` mode (the LLM-thinker,
+	 * lag-causing path). Deterministic `announce`/`detector-only` rules use no
+	 * model, so this stays undefined for them. Surfaces which model is active so
+	 * a customized InnerDaemon model is visible in the trace.
+	 */
+	innerDaemonModel?: string;
 }
 
 /** Per-rule fire/cooldown state held by the steering engine. */

@@ -341,7 +341,7 @@ test('detectConstraintViolations: git log in bash → violation', t => {
 			],
 		}),
 	];
-	const v = detectConstraintViolations(facts, [noHistoryRule]);
+	const v = detectConstraintViolations(facts, [noHistoryRule], 'mimo-v2.5');
 	t.truthy(v);
 	t.is(v?.constraint.tool, 'execute_bash');
 	t.is(v?.matched, 'git log');
@@ -354,7 +354,49 @@ test('detectConstraintViolations: clean turn → null', t => {
 			toolCalls: [toolCall('a', 'execute_bash', {command: 'ls'})],
 		}),
 	];
-	t.is(detectConstraintViolations(facts, [noHistoryRule]), null);
+	t.is(detectConstraintViolations(facts, [noHistoryRule], 'mimo-v2.5'), null);
+});
+
+test('detectConstraintViolations: gated to the rule condition — out-of-scenario → null', t => {
+	// A scenario-scoped constraint (fires only during runtime-setup) must NOT
+	// trip on a matching command in a DIFFERENT intent (e.g. a git probe piped
+	// through head). Regression for the over-scoped alsoBlock.
+	const scopedRule: SteeringRule = {
+		id: 'runtime-only',
+		mode: 'innerdaemon',
+		condition: {intentClass: 'runtime-setup'},
+		watch: {
+			alsoBlock: [
+				{
+					tool: 'execute_bash',
+					argMatches: ['| head -'],
+					message: 'no truncating setup logs',
+				},
+			],
+		},
+	};
+	const gitProbe = [
+		makeFact({
+			turnIndex: 0,
+			intentClass: 'git-history',
+			toolCalls: [
+				toolCall('a', 'execute_bash', {command: 'git branch | head -5'}),
+			],
+		}),
+	];
+	// Different intent → constraint out of scope → no block.
+	t.is(detectConstraintViolations(gitProbe, [scopedRule], 'mimo-v2.5'), null);
+	// SAME intent (runtime-setup) → constraint fires.
+	const setupTurn = [
+		makeFact({
+			turnIndex: 0,
+			intentClass: 'runtime-setup',
+			toolCalls: [
+				toolCall('a', 'execute_bash', {command: 'npm run dev | head -5'}),
+			],
+		}),
+	];
+	t.truthy(detectConstraintViolations(setupTurn, [scopedRule], 'mimo-v2.5'));
 });
 
 test('detectConstraintViolations: git show via git_show tool name mismatch → null', t => {
@@ -367,7 +409,7 @@ test('detectConstraintViolations: git show via git_show tool name mismatch → n
 			toolCalls: [toolCall('a', 'git_show', {ref: 'HEAD'})],
 		}),
 	];
-	t.is(detectConstraintViolations(facts, [noHistoryRule]), null);
+	t.is(detectConstraintViolations(facts, [noHistoryRule], 'mimo-v2.5'), null);
 });
 
 // --- classifyIntent: reproduce (read/search-only proxy) --------------------

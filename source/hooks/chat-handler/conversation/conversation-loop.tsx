@@ -1096,6 +1096,10 @@ export const processAssistantResponse = async (
 				// AFTER the action is applied below so it reads bottom-to-top with
 				// any nudge/block it explains.
 				let steeringDiagnostic: SteeringDiagnostic | null = null;
+				// Verbose "proof-of-life": collect the per-turn diagnostic ONLY when
+				// verbose is on (the engine skips the extra work otherwise). Without
+				// verbose, the `◆ InnerDaemon` inject block below IS the trigger
+				// indicator — no noise-y diagnostic line.
 				const action = await steeringEngine.evaluate(
 					nextTurnFacts,
 					controller.signal,
@@ -1132,6 +1136,7 @@ export const processAssistantResponse = async (
 									message={action.message}
 									urgency={action.urgency ?? 'light'}
 									ruleId={action.ruleId}
+									model={action.model}
 								/>
 							),
 						};
@@ -1144,6 +1149,7 @@ export const processAssistantResponse = async (
 								message={action.message}
 								urgency={action.urgency ?? 'light'}
 								ruleId={action.ruleId}
+								model={action.model}
 							/>,
 						);
 					}

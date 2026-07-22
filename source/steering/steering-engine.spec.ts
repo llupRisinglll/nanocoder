@@ -115,6 +115,7 @@ test('evaluate: git log constraint → instant block, no InnerDaemon call', asyn
 		message: 'git history forbidden',
 		urgency: 'light',
 		ruleId: 'no-history',
+		model: MIMO,
 	});
 	t.false(innerdaemonCalled, 'InnerDaemon must not be called for a constraint block');
 });
@@ -152,6 +153,7 @@ test('evaluate: budget exceeded → InnerDaemon inject fires', async t => {
 		message: 'use the scripts',
 		urgency: 'light',
 		ruleId: 'worktree-supervision',
+		model: MIMO,
 	});
 });
 
@@ -188,6 +190,7 @@ test('announce: fires once on first in-scope turn, injects body + ruleId', async
 		message: 'Reuse ksui. Use theme tokens.',
 		urgency: 'light',
 		ruleId: 'frontend-prefs',
+		model: MIMO,
 	});
 	t.false(innerdaemonCalled, 'announce must not call InnerDaemon (fixed body)');
 });

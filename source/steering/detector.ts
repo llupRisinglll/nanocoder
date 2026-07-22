@@ -440,6 +440,7 @@ function buildMatchReason(
 export function detectConstraintViolations(
 	facts: TurnFact[],
 	rules: SteeringRule[],
+	modelId: string,
 ): {
 	rule: SteeringRule;
 	constraint: SteeringToolConstraint;
@@ -453,6 +454,13 @@ export function detectConstraintViolations(
 		c: SteeringToolConstraint;
 	}> = [];
 	for (const rule of rules) {
+		// Gate the constraint by the rule's OWN condition — an `alsoBlock` is a
+		// SCENARIO-scoped hard rule (e.g. runtime-setup's "don't truncate setup
+		// logs"), not a global ban. Without this it fired on any piped command in
+		// any intent/model (e.g. a `git … | head` probe).
+		if (rule.condition && !conditionMatches(rule.condition, modelId, latest)) {
+			continue;
+		}
 		for (const c of rule.watch?.alsoBlock ?? []) {
 			constraints.push({rule, c});
 		}

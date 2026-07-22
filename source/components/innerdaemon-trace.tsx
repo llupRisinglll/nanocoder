@@ -14,6 +14,9 @@ export function formatSteeringTrace(d: SteeringDiagnostic): string {
 	} else {
 		parts.push(`rule=${d.inScopeRuleId}`);
 		if (d.budgetMax > 0) parts.push(`budget ${d.budgetUsed}/${d.budgetMax}`);
+		// InnerDaemon thinker model (innerdaemon-mode rules only) — so a custom
+		// InnerDaemon model is visible in the trace, alongside its lag.
+		if (d.innerDaemonModel) parts.push(`model=${d.innerDaemonModel}`);
 	}
 	parts.push(d.decision);
 	return parts.join(' · ');

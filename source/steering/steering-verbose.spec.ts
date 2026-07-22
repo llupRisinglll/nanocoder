@@ -89,6 +89,8 @@ test('verbose: noop turn (below budget) still emits a diagnostic naming the in-s
 		budgetUsed: 1,
 		budgetMax: 4,
 		decision: 'noop',
+		// innerdaemon-mode rule → model surfaced (no resolver set → session model).
+		innerDaemonModel: MIMO,
 	} satisfies SteeringDiagnostic);
 });
 
@@ -156,6 +158,8 @@ test('verbose: an out-of-scope intent reports no rule in scope', async t => {
 		budgetUsed: 0,
 		budgetMax: 0,
 		decision: 'noop',
+		// No in-scope rule → no thinker → no model.
+		innerDaemonModel: undefined,
 	} satisfies SteeringDiagnostic);
 });
 
