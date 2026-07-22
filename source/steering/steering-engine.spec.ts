@@ -482,3 +482,168 @@ test('createCriterionChecker: newTestFileExists via write_file to .spec.ts', asy
 		),
 	);
 });
+
+// --- Loop-stateful criteria (facts-aware) ---------------------------------
+
+test('createCriterionChecker: uiDrivenOrAppRun is loop-stateful — unmet before, met at, and stays met after a browser/app-run turn', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	const readTurn0 = makeFact({
+		turnIndex: 0,
+		intentClass: 'reproduce',
+		toolCalls: [toolCall('r0', 'read_file', {path: 'src/counter.ts'})],
+	});
+	const readTurn1 = makeFact({
+		turnIndex: 1,
+		intentClass: 'reproduce',
+		toolCalls: [toolCall('r1', 'grep', {pattern: 'availment'})],
+	});
+	const browseTurn2 = makeFact({
+		turnIndex: 2,
+		toolCalls: [toolCall('b2', 'browser_navigate', {url: 'http://x/counter'})],
+	});
+	const readTurn3 = makeFact({
+		turnIndex: 3,
+		toolCalls: [toolCall('r3', 'read_file', {path: 'src/fix.ts'})],
+	});
+
+	// Not met before any browser/app-run happened this task.
+	t.false(
+		checker('uiDrivenOrAppRun', readTurn0, [readTurn0]),
+		'no UI drive yet → unmet',
+	);
+	t.false(
+		checker('uiDrivenOrAppRun', readTurn1, [readTurn0, readTurn1]),
+		'still no UI drive → unmet',
+	);
+	// Met at the turn the browser call happens.
+	t.true(
+		checker('uiDrivenOrAppRun', browseTurn2, [readTurn0, readTurn1, browseTurn2]),
+		'browser_* call → met',
+	);
+	// Stays met on a later read-only turn (the fix phase).
+	t.true(
+		checker('uiDrivenOrAppRun', readTurn3, [
+			readTurn0,
+			readTurn1,
+			browseTurn2,
+			readTurn3,
+		]),
+		'stays met after the reproduction (loop-stateful)',
+	);
+});
+
+test('createCriterionChecker: uiDrivenOrAppRun — a non-error dev-server run counts; an errored run does not', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	const okRun = makeFact({
+		toolCalls: [toolCall('a', 'execute_bash', {command: 'pnpm run dev'})],
+		toolResults: [toolResult('a', 'execute_bash', 'ready in 200ms')],
+	});
+	t.true(checker('uiDrivenOrAppRun', okRun, [okRun]), 'clean dev run → met');
+
+	const failedRun = makeFact({
+		toolCalls: [toolCall('a', 'execute_bash', {command: 'pnpm run dev'})],
+		toolResults: [toolResult('a', 'execute_bash', 'Error: port in use, failed')],
+	});
+	t.false(
+		checker('uiDrivenOrAppRun', failedRun, [failedRun]),
+		'errored dev run → not met',
+	);
+});
+
+test('createCriterionChecker: artifactProducedThisTask is loop-stateful — unmet through read-only turns, met once an edit lands, stays met', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	const explore0 = makeFact({
+		turnIndex: 0,
+		toolCalls: [toolCall('e0', 'agent', {subagent: 'explore', task: 'find it'})],
+	});
+	const read1 = makeFact({
+		turnIndex: 1,
+		toolCalls: [toolCall('r1', 'read_file', {path: 'a.ts'})],
+	});
+	const write2 = makeFact({
+		turnIndex: 2,
+		toolCalls: [toolCall('w2', 'write_file', {path: 'a.spec.ts'})],
+	});
+	const read3 = makeFact({
+		turnIndex: 3,
+		toolCalls: [toolCall('r3', 'read_file', {path: 'b.ts'})],
+	});
+
+	t.false(
+		checker('artifactProducedThisTask', explore0, [explore0]),
+		'explore only → no artifact',
+	);
+	t.false(
+		checker('artifactProducedThisTask', read1, [explore0, read1]),
+		'still only reading → no artifact',
+	);
+	t.true(
+		checker('artifactProducedThisTask', write2, [explore0, read1, write2]),
+		'a write landed → artifact produced',
+	);
+	t.true(
+		checker('artifactProducedThisTask', read3, [explore0, read1, write2, read3]),
+		'stays met on a later read-only turn',
+	);
+});
+
+test('createCriterionChecker: artifactProducedThisTask counts a test run and a browser call as artifacts', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+	const testRun = makeFact({
+		toolCalls: [toolCall('a', 'execute_bash', {command: 'npx ava src/x.spec.ts'})],
+	});
+	t.true(checker('artifactProducedThisTask', testRun, [testRun]), 'test run → artifact');
+	const browse = makeFact({
+		toolCalls: [toolCall('a', 'browser_click', {ref: 'e1'})],
+	});
+	t.true(checker('artifactProducedThisTask', browse, [browse]), 'browser call → artifact');
+});
+
+test('createCriterionChecker: implEditedBeforeTest — true when impl edited before any test, false when test written first', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	// Impl-first: write src before any spec → violation is TRUE at the impl turn
+	// and stays true afterwards.
+	const implFirst0 = makeFact({
+		turnIndex: 0,
+		toolCalls: [toolCall('i0', 'write_file', {path: 'src/counter.ts'})],
+	});
+	const laterTest1 = makeFact({
+		turnIndex: 1,
+		toolCalls: [toolCall('t1', 'write_file', {path: 'src/counter.spec.ts'})],
+	});
+	t.true(
+		checker('implEditedBeforeTest', implFirst0, [implFirst0]),
+		'impl written with no test yet → violation',
+	);
+	t.true(
+		checker('implEditedBeforeTest', laterTest1, [implFirst0, laterTest1]),
+		'stays true even after a test is later added (the ordering already broke)',
+	);
+
+	// Test-first: spec before impl → never a violation.
+	const test0 = makeFact({
+		turnIndex: 0,
+		toolCalls: [toolCall('t0', 'write_file', {path: 'src/counter.spec.ts'})],
+	});
+	const impl1 = makeFact({
+		turnIndex: 1,
+		toolCalls: [toolCall('i1', 'string_replace', {path: 'src/counter.ts'})],
+	});
+	t.false(
+		checker('implEditedBeforeTest', test0, [test0]),
+		'test-first turn → no violation',
+	);
+	t.false(
+		checker('implEditedBeforeTest', impl1, [test0, impl1]),
+		'impl AFTER the test → no violation (earned the edit)',
+	);
+});

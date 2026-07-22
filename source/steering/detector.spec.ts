@@ -369,3 +369,135 @@ test('detectConstraintViolations: git show via git_show tool name mismatch → n
 	];
 	t.is(detectConstraintViolations(facts, [noHistoryRule]), null);
 });
+
+// --- classifyIntent: reproduce (read/search-only proxy) --------------------
+
+test('classifyIntent: a read-only turn (read_file + grep) is reproduce', t => {
+	const tc = [
+		toolCall('a', 'read_file', {path: 'src/counter.ts'}),
+		toolCall('b', 'grep', {pattern: 'availment'}),
+	];
+	t.is(classifyIntent(tc), 'reproduce');
+});
+
+test('classifyIntent: an explore agent delegation is reproduce', t => {
+	const tc = [
+		toolCall('a', 'agent', {subagent: 'explore', task: 'find the classifier'}),
+	];
+	t.is(classifyIntent(tc), 'reproduce');
+});
+
+test('classifyIntent: a browser_* turn is NOT reproduce (reproduction already happening)', t => {
+	const tc = [toolCall('a', 'browser_navigate', {url: 'http://x'})];
+	t.not(classifyIntent(tc), 'reproduce');
+});
+
+test('classifyIntent: a read turn mixed with a git log stays git-history (action class wins)', t => {
+	const tc = [
+		toolCall('a', 'read_file', {path: 'x.ts'}),
+		toolCall('b', 'execute_bash', {command: 'git log --oneline'}),
+	];
+	t.is(classifyIntent(tc), 'git-history');
+});
+
+test('classifyIntent: a write turn is NOT reproduce', t => {
+	const tc = [toolCall('a', 'write_file', {path: 'src/x.ts'})];
+	t.not(classifyIntent(tc), 'reproduce');
+});
+
+// --- evaluateRules: windowed repeat detection (repeatThreshold) ------------
+
+const probeRule = (threshold: number, matches?: string[]): SteeringRule => ({
+	id: 'hilinga-runtime-setup-loop',
+	mode: 'innerdaemon',
+	condition: {modelIn: [MIMO], intentClass: 'runtime-setup'},
+	watch: {
+		successCriterion: 'portListenerExists',
+		// A high turn-budget so the ONLY thing that can trip the rule here is the
+		// repeat threshold — proves the repeat gate fires independently.
+		maxTurnsWithoutSuccess: 99,
+		repeatThreshold: threshold,
+		...(matches ? {repeatToolMatches: matches} : {}),
+	},
+});
+
+const probeFact = (turnIndex: number, command: string): TurnFact =>
+	makeFact({
+		turnIndex,
+		intentClass: 'runtime-setup',
+		toolCalls: [toolCall(`p${turnIndex}`, 'execute_bash', {command})],
+		toolResults: [toolResult(`p${turnIndex}`, 'execute_bash', 'refused')],
+	});
+
+test('evaluateRules: same probe repeated ≥ threshold → candidate (budget not exhausted)', t => {
+	const cmd = 'lsof -i :4161 || ss -tlnp | grep 4161';
+	const facts = [0, 1, 2].map(i => probeFact(i, cmd));
+	const cands = evaluateRules(facts, [probeRule(3)], MIMO, alwaysFalseChecker);
+	t.is(cands.length, 1);
+	t.is(cands[0].rule.id, 'hilinga-runtime-setup-loop');
+});
+
+test('evaluateRules: whitespace-only difference still counts as the same probe', t => {
+	const facts = [
+		probeFact(0, 'lsof -i :4161'),
+		probeFact(1, 'lsof  -i  :4161'),
+		probeFact(2, 'lsof -i :4161'),
+	];
+	const cands = evaluateRules(facts, [probeRule(3)], MIMO, alwaysFalseChecker);
+	t.is(cands.length, 1, 'normalized identical probes reach the threshold');
+});
+
+test('evaluateRules: fewer than threshold identical probes → no candidate', t => {
+	const cmd = 'lsof -i :4161';
+	const facts = [probeFact(0, cmd), probeFact(1, cmd)];
+	const cands = evaluateRules(facts, [probeRule(3)], MIMO, alwaysFalseChecker);
+	t.is(cands.length, 0);
+});
+
+test('evaluateRules: DIFFERENT probes each turn → no repeat candidate', t => {
+	const facts = [
+		probeFact(0, 'lsof -i :4161'),
+		probeFact(1, 'curl -s localhost:4161'),
+		probeFact(2, 'ss -tlnp | grep 4160'),
+	];
+	const cands = evaluateRules(facts, [probeRule(3)], MIMO, alwaysFalseChecker);
+	t.is(cands.length, 0, "diverse strategies are the budget rule's job, not this one");
+});
+
+test('evaluateRules: repeat suppressed when the success criterion is met (server up)', t => {
+	const cmd = 'lsof -i :4161';
+	const facts = [0, 1, 2].map(i => probeFact(i, cmd));
+	// alwaysTrueChecker = portListenerExists met → a confirming probe is fine.
+	const cands = evaluateRules(facts, [probeRule(3)], MIMO, alwaysTrueChecker);
+	t.is(cands.length, 0);
+});
+
+test('evaluateRules: repeatToolMatches scopes the signal to probe tools', t => {
+	// A repeated NON-probe command (a build step) must not trip a probe-scoped
+	// repeat rule, even when repeated to the threshold.
+	const buildFacts = [0, 1, 2].map(i => probeFact(i, 'pnpm run build'));
+	const scoped = probeRule(3, ['lsof', 'ss ', 'curl', 'netstat']);
+	t.is(
+		evaluateRules(buildFacts, [scoped], MIMO, alwaysFalseChecker).length,
+		0,
+		'a repeated build step is out of probe scope → no candidate',
+	);
+	// The same rule DOES fire on repeated in-scope lsof probes.
+	const lsofFacts = [0, 1, 2].map(i => probeFact(i, 'lsof -i :4161'));
+	t.is(
+		evaluateRules(lsofFacts, [scoped], MIMO, alwaysFalseChecker).length,
+		1,
+		'repeated lsof probes are in scope → candidate',
+	);
+});
+
+test('evaluateRules: countRepeatedLatestCall counts turns with the identical probe', async t => {
+	const {countRepeatedLatestCall} = await import('./detector');
+	const cmd = 'lsof -i :4161';
+	const facts = [probeFact(0, cmd), probeFact(1, 'curl x'), probeFact(2, cmd)];
+	t.is(
+		countRepeatedLatestCall(facts, {repeatThreshold: 2}),
+		2,
+		"two turns issued the latest turn's probe",
+	);
+});

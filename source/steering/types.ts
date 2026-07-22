@@ -27,6 +27,7 @@ export type IntentClass =
 	| 'worktree-creation'
 	| 'runtime-setup'
 	| 'tdd'
+	| 'reproduce'
 	| 'frontend-edit'
 	| 'git-history'
 	| 'unknown';
@@ -129,6 +130,26 @@ export interface SteeringRuleWatch {
 	maxTurnsWithoutSuccess?: number;
 	/** Hard constraints that fire instantly (detector-only, no budget). */
 	alsoBlock?: SteeringToolConstraint[];
+	/**
+	 * Windowed repeat-detection trigger (finding runtime-setup-loop): make the
+	 * rule a candidate once the LATEST turn's tool call has been issued,
+	 * verbatim (after whitespace-normalization), in at least this many turns of
+	 * the recent {@link TurnFact} window. Fires SOONER than the turn-budget for
+	 * the precise "re-issuing the SAME probe" spin (e.g. `lsof -i :4161` run
+	 * N times). Evaluated in `detector.ts` alongside — not instead of — the
+	 * budget gate; when the rule's `successCriterion` is already met the repeat
+	 * trigger is suppressed (a confirming probe of a live port is fine).
+	 */
+	repeatThreshold?: number;
+	/**
+	 * Optional scope for {@link repeatThreshold}: only tool calls whose
+	 * normalized `name + args` blob contains one of these substrings are counted
+	 * as repeats (e.g. `['lsof', 'ss ', 'curl', 'netstat']` to restrict the
+	 * signal to read-only port probes, so a legitimately repeated
+	 * build/restore step that DOES change state isn't misflagged). When omitted
+	 * or empty, every tool call is eligible.
+	 */
+	repeatToolMatches?: string[];
 }
 
 /**
@@ -139,6 +160,26 @@ export type SuccessCriterion =
 	| 'worktreeDirExists'
 	| 'portListenerExists'
 	| 'newTestFileExists'
+	/**
+	 * Loop-stateful (reproduction-first): met once the loop has, in ANY turn,
+	 * either called a `browser_*` tool OR run the app / dev server without
+	 * error. Stays met through the subsequent fix phase.
+	 */
+	| 'uiDrivenOrAppRun'
+	/**
+	 * Loop-stateful (over-exploration budget): met once ANY concrete artifact
+	 * has been produced in the task — a `write_file`/`string_replace`, a
+	 * `browser_*` call, or a test run. The generic "you have explored enough,
+	 * produce something" signal behind findings #7/#8.
+	 */
+	| 'artifactProducedThisTask'
+	/**
+	 * Loop-stateful ANTI-criterion (tdd-discipline): true once, in this task, an
+	 * implementation (non-`.spec`/`.test`) source file was written BEFORE any
+	 * test file was written. Unlike the others this is a VIOLATION signal, not a
+	 * goal — see the checker comment for how a rule consumes it.
+	 */
+	| 'implEditedBeforeTest'
 	| 'none';
 
 /** Whether a rule acts deterministically or delegates judgment to InnerDaemon. */

@@ -35,6 +35,7 @@ import {
 	innerdaemonResponseToAction,
 	invokeInnerDaemon,
 } from '@/steering/innerdaemon';
+import {serializeToolArgs} from '@/steering/intent-classifier';
 import {
 	type InnerDaemonRequest,
 	type InnerDaemonResponse,
@@ -321,7 +322,7 @@ export class SteeringEngine {
 		const criterion = rule.watch?.successCriterion;
 		const criterionMet =
 			criterion && criterion !== 'none'
-				? this.checker(criterion, latest)
+				? this.checker(criterion, latest, facts)
 				: undefined;
 		return {
 			ruleId: rule.id,
@@ -406,18 +407,135 @@ function isPortListeningSync(port: number): boolean {
 	return false;
 }
 
+/** True if a tool call is a `browser_*` MCP call (a UI-drive). */
+function isBrowserCall(tc: import('@/types/core').ToolCall): boolean {
+	return (tc.function?.name ?? '').toLowerCase().startsWith('browser_');
+}
+
+/** Lowercased `name + serialized-args` blob for one tool call. */
+function callBlob(tc: import('@/types/core').ToolCall): string {
+	const name = tc.function?.name ?? '';
+	const args = serializeToolArgs(tc.function?.arguments);
+	return `${name} ${args}`.toLowerCase();
+}
+
+/** Keywords that mark an app / dev-server run (reproduction-first). */
+const APP_RUN_KEYWORDS = [
+	'npm run dev',
+	'pnpm run dev',
+	'bun run dev',
+	'yarn dev',
+	'vinxi dev',
+	'vinxi start',
+];
+
+/** Keywords that mark a test run (over-exploration artifact signal). */
+const TEST_RUN_KEYWORDS = [
+	'npm test',
+	'pnpm test',
+	'pnpm run test',
+	'bun test',
+	'vitest',
+	'jest',
+	'npx ava',
+	'test:ava',
+	'ava ',
+];
+
+/** The tool-result paired with a tool call (by id), if any. */
+function resultFor(
+	fact: TurnFact,
+	tc: import('@/types/core').ToolCall,
+): import('@/types/core').ToolResult | undefined {
+	return fact.toolResults.find(r => r.tool_call_id === tc.id);
+}
+
+/** True if a paired tool result indicates an error (or errory content). */
+function resultIsError(r?: import('@/types/core').ToolResult): boolean {
+	if (!r) return false;
+	return (
+		r.isError === true || /error|not found|failed|econnrefused/i.test(r.content)
+	);
+}
+
+/** True if the fact ran an app / dev server without an error result. */
+function factHasAppRun(fact: TurnFact): boolean {
+	return fact.toolCalls.some(tc => {
+		const blob = callBlob(tc);
+		if (!APP_RUN_KEYWORDS.some(kw => blob.includes(kw))) return false;
+		return !resultIsError(resultFor(fact, tc));
+	});
+}
+
+/** True if the fact ran a test (any test-runner keyword in a tool call). */
+function factHasTestRun(fact: TurnFact): boolean {
+	return fact.toolCalls.some(tc => {
+		const blob = callBlob(tc);
+		return TEST_RUN_KEYWORDS.some(kw => blob.includes(kw));
+	});
+}
+
+/** Path a write/edit tool targets this call, or undefined for a non-edit. */
+function editPath(tc: import('@/types/core').ToolCall): string | undefined {
+	const name = tc.function?.name ?? '';
+	if (name !== 'write_file' && name !== 'string_replace') return undefined;
+	const a = tc.function?.arguments;
+	const p =
+		a && typeof a === 'object'
+			? ((a.path as string) ?? (a.file_path as string))
+			: undefined;
+	return typeof p === 'string' ? p : undefined;
+}
+
+/** Matches a `.spec.ts(x)` / `.test.ts(x)` path. */
+const SPEC_PATH_RE = /\.spec\.t(s|sx)|\.test\.t(s|sx)/;
+
+/** True if the fact wrote/edited a spec/test file. */
+function factWroteTestFile(fact: TurnFact): boolean {
+	return fact.toolCalls.some(tc => {
+		const p = editPath(tc);
+		return p !== undefined && SPEC_PATH_RE.test(p);
+	});
+}
+
+/** True if the fact wrote/edited a NON-spec/test (implementation) source file. */
+function factWroteImplFile(fact: TurnFact): boolean {
+	return fact.toolCalls.some(tc => {
+		const p = editPath(tc);
+		return p !== undefined && !SPEC_PATH_RE.test(p);
+	});
+}
+
+/** True if the fact produced ANY concrete artifact (edit, browser, test run). */
+function factProducedArtifact(fact: TurnFact): boolean {
+	return (
+		fact.toolCalls.some(tc => editPath(tc) !== undefined) ||
+		fact.toolCalls.some(isBrowserCall) ||
+		factHasTestRun(fact)
+	);
+}
+
 /**
  * Build a success-criterion checker bound to a worktree-root / cwd context.
  * The conversation loop passes the current cwd; v1 implements the observable
  * predicates as cheap fs/socket checks. Phase 3 swaps these for the events
  * file-watcher.
  *
+ * The fs-backed criteria (`worktreeDirExists`, `portListenerExists`,
+ * `newTestFileExists`) read only the single `fact` and ignore `facts` — their
+ * two-arg call sites and behavior are unchanged. The LOOP-STATEFUL criteria
+ * (`uiDrivenOrAppRun`, `artifactProducedThisTask`, `implEditedBeforeTest`) scan
+ * the `facts` task prefix, so they answer "did X ever happen this task?" and
+ * stay met (or, for the anti-criterion, stay tripped) once the condition holds.
+ * When `facts` is omitted the scope defaults to `[fact]` (single turn).
+ *
  * Returned checker is safe to call repeatedly (idempotent reads).
  */
 export function createCriterionChecker(
 	getCwd: () => string,
 ): SuccessCriterionChecker {
-	return (criterion, fact) => {
+	return (criterion, fact, facts) => {
+		const scope = facts ?? [fact];
 		switch (criterion) {
 			case 'worktreeDirExists': {
 				const cwd = fact.cwd ?? getCwd();
@@ -487,6 +605,46 @@ export function createCriterionChecker(
 							JSON.stringify(tc.function?.arguments ?? {}),
 						),
 				);
+			}
+			case 'uiDrivenOrAppRun': {
+				// Loop-stateful: met once ANY turn of the task either drove the UI
+				// (a `browser_*` call) or ran the app / dev server without error.
+				// Stays met through the fix phase (scans the whole task prefix), so
+				// a reproduction-first rule goes dormant after the first reproduce.
+				return scope.some(
+					f => f.toolCalls.some(isBrowserCall) || factHasAppRun(f),
+				);
+			}
+			case 'artifactProducedThisTask': {
+				// Loop-stateful: met once ANY turn produced a concrete artifact — a
+				// `write_file`/`string_replace`, a `browser_*` call, or a test run.
+				// The generic over-exploration signal: while unmet the budget climbs
+				// on read/search-only turns; the first artifact resets it for good.
+				return scope.some(factProducedArtifact);
+			}
+			case 'implEditedBeforeTest': {
+				// Loop-stateful ANTI-criterion: returns TRUE once the VIOLATION has
+				// occurred — an implementation (non-spec) source file was written in
+				// some turn before any test file had been written earlier in the
+				// task. NOTE on polarity: unlike the goal criteria, `true` here means
+				// "bad ordering happened", so this is NOT wired as a positive
+				// `successCriterion` in the budget gate (which fires on the criterion
+				// being UNMET and would invert the intent). It is consumed as the
+				// `criterionMet` signal handed to InnerDaemon (buildRequest), which
+				// reads it to confirm the impl-first edit before injecting the
+				// test-first nudge. Chosen over extending `SteeringToolConstraint`/
+				// `alsoBlock` with a path negation because the "before a test
+				// existed" clause is inherently LOOP-STATEFUL — it needs the task
+				// history, which the turn-local `alsoBlock` path (it only sees the
+				// latest turn) structurally cannot express, whereas the now
+				// facts-aware checker can. A same-turn test+impl write counts as
+				// test-first (lenient — no false violation).
+				let testSeen = false;
+				for (const f of scope) {
+					if (factWroteTestFile(f)) testSeen = true;
+					if (factWroteImplFile(f) && !testSeen) return true;
+				}
+				return false;
 			}
 			case 'none':
 				return true;

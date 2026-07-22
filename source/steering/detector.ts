@@ -15,12 +15,16 @@
  */
 
 import {DEFAULT_STEERING_BUDGET_TURNS} from '@/constants';
-import {matchingArgSubstring} from '@/steering/intent-classifier';
+import {
+	matchingArgSubstring,
+	serializeToolArgs,
+} from '@/steering/intent-classifier';
 import {
 	type IntentClass,
 	type SteeringCandidate,
 	type SteeringCondition,
 	type SteeringRule,
+	type SteeringRuleWatch,
 	type SteeringToolConstraint,
 	type SuccessCriterion,
 	type TurnFact,
@@ -145,7 +149,20 @@ function editedPathsThisTurn(fact: TurnFact): string[] {
  * filesystem/socket checks; Phase 3 wires the events file-watcher.
  */
 export interface SuccessCriterionChecker {
-	(criterion: SuccessCriterion, fact: TurnFact): boolean;
+	/**
+	 * @param criterion The criterion to check.
+	 * @param fact      The turn under consideration (the "current" turn for a
+	 *                  turn-local / fs-backed criterion).
+	 * @param facts     The task prefix ENDING at `fact` (most recent last) —
+	 *                  supplied so LOOP-STATEFUL criteria can answer "did X
+	 *                  happen in ANY turn of the task up to here?". Optional so
+	 *                  the fs-backed criteria (`worktreeDirExists`,
+	 *                  `portListenerExists`, `newTestFileExists`) — which only
+	 *                  read `fact` — keep their exact two-arg call sites and
+	 *                  behavior. When omitted a checker treats the scope as
+	 *                  `[fact]`.
+	 */
+	(criterion: SuccessCriterion, fact: TurnFact, facts?: TurnFact[]): boolean;
 }
 
 /**
@@ -187,11 +204,32 @@ export function evaluateRules(
 		}
 
 		// Budget gate: has the rule been in-scope long enough without success?
+		// A rule with a `repeatThreshold` gets an ADDITIONAL, independent
+		// trigger — it becomes a candidate when the latest turn's tool call has
+		// repeated across the window, even if the turn-budget isn't exhausted
+		// (the repeat spin fires sooner). The two are OR-ed; when neither trips
+		// the rule is skipped. With no `repeatThreshold` this is byte-identical
+		// to the original budget-only gate.
 		const watch = rule.watch;
 		if (watch) {
 			const budget =
 				watch.maxTurnsWithoutSuccess ?? DEFAULT_STEERING_BUDGET_TURNS;
-			if (consecutiveInScopeCount(facts, rule, checker) < budget) continue;
+			const budgetExhausted =
+				consecutiveInScopeCount(facts, rule, checker) >= budget;
+			let repeatTripped = false;
+			if (!budgetExhausted && watch.repeatThreshold !== undefined) {
+				// Suppress the repeat trigger when the goal is already met (a
+				// confirming probe of a live port is fine — draft's noop case).
+				const met =
+					watch.successCriterion && watch.successCriterion !== 'none'
+						? checker(watch.successCriterion, latest, facts)
+						: false;
+				if (!met) {
+					repeatTripped =
+						countRepeatedLatestCall(facts, watch) >= watch.repeatThreshold;
+				}
+			}
+			if (!budgetExhausted && !repeatTripped) continue;
 		}
 
 		candidates.push({
@@ -220,11 +258,15 @@ export function consecutiveInScopeCount(
 	let consecutiveInScope = 0;
 	for (let i = facts.length - 1; i >= 0; i--) {
 		const f = facts[i];
-		// Stop the window if the criterion was already met by this turn.
+		// Stop the window if the criterion was already met by this turn. Pass the
+		// task prefix up to and including `f` so a LOOP-STATEFUL criterion (e.g.
+		// `artifactProducedThisTask`) reports met from the first turn X happened
+		// onward — which resets the budget and keeps a create-once/produce-once
+		// rule dormant through later phases.
 		if (
 			watch?.successCriterion &&
 			watch.successCriterion !== 'none' &&
-			checker(watch.successCriterion, f)
+			checker(watch.successCriterion, f, facts.slice(0, i + 1))
 		) {
 			break;
 		}
@@ -241,6 +283,64 @@ export function consecutiveInScopeCount(
 		consecutiveInScope++;
 	}
 	return consecutiveInScope;
+}
+
+/**
+ * Normalize a tool call to a stable identity string for repeat-detection:
+ * lowercased `name + serialized-args` with runs of whitespace collapsed to a
+ * single space and trimmed — so `lsof -i :4161` and `lsof  -i :4161` are the
+ * same probe (the draft's argument-normalization requirement). The whole
+ * serialized call is the identity key, so a compound
+ * `lsof -i :4161 || ss -tlnp | grep 4161` counts only against a verbatim repeat;
+ * a changed port or fallback is a different probe.
+ */
+function normalizeCall(tc: ToolCall): string {
+	const name = tc.function?.name ?? '';
+	const args = serializeToolArgs(tc.function?.arguments);
+	return `${name} ${args}`.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** True if a normalized call is in scope for the optional probe-tool filter. */
+function callInRepeatScope(normalized: string, matches?: string[]): boolean {
+	if (!matches || matches.length === 0) return true;
+	return matches.some(m => normalized.includes(m.toLowerCase()));
+}
+
+/**
+ * Windowed repeat count for {@link SteeringRuleWatch.repeatThreshold}: over the
+ * recent `TurnFact` window, how many turns issued a tool call identical
+ * (normalized) to one the LATEST turn issued. Returns the max across the
+ * latest turn's distinct in-scope signatures (so a turn with several probes is
+ * judged by its most-repeated one). The latest turn itself counts, so a
+ * threshold of `3` means "this same probe appeared in 3 turns". Only calls
+ * passing the optional `repeatToolMatches` filter are considered.
+ */
+export function countRepeatedLatestCall(
+	facts: TurnFact[],
+	watch: SteeringRuleWatch,
+): number {
+	if (facts.length === 0) return 0;
+	const latest = facts[facts.length - 1];
+	const matches = watch.repeatToolMatches;
+	const latestSigs = new Set(
+		latest.toolCalls
+			.map(normalizeCall)
+			.filter(sig => callInRepeatScope(sig, matches)),
+	);
+	if (latestSigs.size === 0) return 0;
+	let best = 0;
+	for (const sig of latestSigs) {
+		let count = 0;
+		for (const f of facts) {
+			const hit = f.toolCalls.some(tc => {
+				const n = normalizeCall(tc);
+				return n === sig && callInRepeatScope(n, matches);
+			});
+			if (hit) count++;
+		}
+		if (count > best) best = count;
+	}
+	return best;
 }
 
 /**

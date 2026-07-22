@@ -143,6 +143,57 @@ const RULES: readonly IntentRule[] = [
 ];
 
 /**
+ * Read/search-only tool names — a turn built entirely from these (plus an
+ * `explore`/`plan` `agent` delegation) is investigation, not action.
+ */
+const READ_ONLY_TOOLS = new Set([
+	'read_file',
+	'read_many_files',
+	'grep',
+	'find',
+	'search_file_contents',
+	'list_directory',
+	'glob',
+]);
+
+/**
+ * True if a single tool call is investigation-only: a read/search tool, or an
+ * `agent` delegation whose args name `explore`/`plan`.
+ */
+function isReproduceProxyCall(tc: ToolCall): boolean {
+	const name = (tc.function?.name ?? '').toLowerCase();
+	if (READ_ONLY_TOOLS.has(name)) return true;
+	if (name === 'agent') {
+		const args = serializeToolArgs(tc.function?.arguments).toLowerCase();
+		return args.includes('explore') || args.includes('plan');
+	}
+	return false;
+}
+
+/**
+ * `reproduce` proxy (reproduction-first draft): the turn is read/search-only
+ * (every call is a read tool or an `explore`/`plan` `agent` delegation) AND no
+ * `browser_*` call occurred. LIMITATION: `classifyIntent` sees only the current
+ * turn, so "no browser call yet THIS LOOP" is approximated as "no browser call
+ * this TURN" (a read-only turn has none by construction). A read-only turn that
+ * happens AFTER a browser reproduction still classifies `reproduce`; that is
+ * acceptable because the loop-stateful `uiDrivenOrAppRun` criterion — not this
+ * classifier — is the real lever that makes the rule dormant once reproduction
+ * has happened (mirrors the finding-#5 resolution: fix the criterion, not the
+ * classifier). Full task-kind threading into `TurnFact` is out of scope.
+ */
+function matchesReproduce(toolCalls: ToolCall[]): boolean {
+	if (
+		toolCalls.some(tc =>
+			(tc.function?.name ?? '').toLowerCase().startsWith('browser_'),
+		)
+	) {
+		return false;
+	}
+	return toolCalls.every(isReproduceProxyCall);
+}
+
+/**
  * Classify the dominant intent of a turn from its tool calls.
  *
  * Returns `'unknown'` for a no-tool-call (pure text) turn, or when no rule
@@ -188,6 +239,11 @@ export function classifyIntent(toolCalls: ToolCall[]): IntentClass {
 		);
 	});
 	if (frontendEdit) return 'frontend-edit';
+
+	// Reproduce: a purely investigative turn (read/search or explore/plan
+	// delegation, no browser). Checked LAST so any keyword-bearing action class
+	// (git-history, runtime-setup, tdd, worktree, frontend-edit) wins first.
+	if (matchesReproduce(toolCalls)) return 'reproduce';
 
 	return 'unknown';
 }
