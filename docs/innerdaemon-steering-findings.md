@@ -15,6 +15,8 @@ Context: live Hilinga counter-availment simulation (mimo-v2.5, `--mode yolo`, ve
 | 6 | Yolo mode over-prompts for tool confirmation on BENIGN read-only bash commands (`curl`/`lsof`/`ss`) — should only prompt on genuinely dangerous ones | High | **Fixed** (InnerDaemon executor mode wiring) |
 | 10 | InnerDaemon subagent uses `model: inherit` (no thinking-off, no fast model) — slow + strict-output-unreliable when it fires | High | OPEN (architecture) |
 | 11 | The `/release-branch-to-prod` six lens-reviewer subagents could not run ("model not in this deployment") — release-flow review silently degraded to manual | Medium | OPEN (tooling) |
+| 12 | New `reproduction-first` rule false-fires during worktree-setup (and any read-heavy non-reproduce phase): the `reproduce` intent proxy classifies ANY read-only turn as reproduce, and its explore-block fired during worktree creation | High | OPEN (regression from rule activation) |
+| 13 | Activated `workspace-select-before-reproduce` never fires — starved by `reproduction-first` (identical condition, "first action wins") AND its `uiDrivenOrAppRun` criterion goes dormant the moment the browser is driven, which is exactly when the wrong-workspace problem appears | High | OPEN (regression from activation) |
 
 ---
 
@@ -186,6 +188,37 @@ Drafted under `docs/steering-drafts/` (outside the live `.nanocoder/steering/` s
 **Fix candidates:** (a) make the reviewer subagents resolve to an available model (or the session model) with an explicit fallback; (b) make the review step **fail loudly / block the PR** when the reviewers cannot run, rather than silently degrading to self-review — or at minimum require explicit operator acknowledgement before proceeding with a manual-only review on a ship-straight-to-prod path.
 
 **Positive note (not a defect):** mimo's *handling* was good — it did not fake the review, it disclosed the degradation in the PR, and it correctly targeted `base main` / `head feat/<task>` and wrote a clear, structured PR description. The tooling gap is the finding, not the agent's behavior.
+
+---
+
+## 12. `reproduction-first` false-fires in non-reproduce read-heavy phases — OPEN (regression from activation)
+
+**Observed live (first from-scratch run after activating the rules):** During **Prompt 1 (worktree creation)**, the trace read `InnerDaemon · intent=reproduce · rule=hilinga-reproduction-first · budget 1/5 · block`. mimo's read-only worktree-setup exploration was classified as `reproduce` (the intent proxy = "read/search-only turn OR explore/plan delegation, no browser call this loop"), so the new `reproduction-first` rule came into scope and its `alsoBlock` on spawning an `explore` subagent **fired during worktree creation**, blocking a legitimate setup `explore`. mimo recovered (ran `./worktree-create.sh` directly) and the worktree built, but this is a clear false positive — the mirror of finding #5 (intent over-matching), reintroduced by the new rule.
+
+**Root cause:** the `reproduce` intent proxy is too broad. Without the user's *task kind* (is this actually a "reproduce a bug" task?), ANY read-heavy phase — worktree setup, general investigation, config reading — classifies as `reproduce`, so `reproduction-first` (and `workspace-select-before-reproduce`, same condition) fire in the wrong phase. The `reproduction-first` draft's own `## Requires` predicted this: it noted the proxy "likely also needs the user's task intent threaded into `TurnFact` (a `userTaskKind` field)"; the lighter proxy we shipped over-fires exactly as feared. The `alsoBlock` on `explore` makes it worse — an INSTANT block (budget-independent) rather than a budget-gated nudge, so it disrupts before any dormancy logic can apply.
+
+**Fix options (in order of properness):**
+1. **Thread `userTaskKind` into `TurnFact`** (the proper fix the drafts flagged): mark the turn's task as reproduce/fix/feature from the user's prompt, and gate `reproduce` intent + `reproduction-first`/`workspace-select` on an actual reproduce/investigate task. This is the real solution and unblocks precise scoping for the TDD/reproduce rules generally.
+2. **Pragmatic mitigation now:** (a) drop the `alsoBlock` on `explore` from `reproduction-first` — an instant block on a legitimate explore is too aggressive; a budget-gated nudge is enough; (b) exclude worktree/`.gitopolis`/`worktree-create` references from the `reproduce` classification so worktree-setup turns don't classify as reproduce (a lightweight per-turn exclusion, same spirit as finding #5's `matchesWorktreeCreation`).
+3. Add an explicit exclusion to `reproduction-first`/`workspace-select` conditions so they never fire while `worktree-creation` intent or `userTriggeredSkill: worktree` is active.
+
+**Note:** this is a regression introduced by ACTIVATING the rule (the engine primitives themselves are sound); it's the classic "the steering itself misfires and disrupts the model" risk the whole simulation exists to catch — caught on the first real run.
+
+---
+
+## 13. `workspace-select-before-reproduce` never fires — starved + mis-scoped — OPEN (regression from activation)
+
+**Observed live (same from-scratch validation run):** across the reproduce phase, `reproduction-first` fired 4×, `runtime-setup-budget` 3×, `worktree-supervision` 1× — and `workspace-select-before-reproduce` fired **0×**. The finding-#7 rule, as activated, is inert. Two independent causes:
+
+1. **Starvation by an identical-condition sibling.** `workspace-select` and `reproduction-first` share the exact condition (`intentClass: reproduce`, `successCriterion: uiDrivenOrAppRun`). The engine emits at most one action per turn ("first non-noop action wins"), and `reproduction-first` (with its instant `explore` `alsoBlock`) trips first every time, so `workspace-select` never reaches the emit.
+2. **The criterion goes dormant exactly when the problem appears.** `uiDrivenOrAppRun` is MET as soon as the model drives the browser once. But the wrong-workspace / empty-data trap (superuser defaulting to `orgs[0]` instead of KahitSan Panganiban = 3) manifests *after* the browser is driven — while the model is looking at the empty list. By then the criterion is met and the rule is dormant, so it could never surface the workspace hint at the moment it's needed.
+
+**Fix options:**
+1. **Merge the workspace guidance into `reproduction-first`'s body** (recommended, simplest): since `reproduction-first` is the rule that actually fires in this window, add the "select the correct workspace — KahitSan Panganiban = 3, confirm via `/api/me`" hint to its nudge body, and retire the separate `workspace-select` rule. One rule, fires reliably, carries both messages.
+2. **Give `workspace-select` a distinct, later trigger** that stays live *during* browsing: e.g. an "empty/insufficient plugin data observed in the UI" signal (a new criterion detecting a `browser_snapshot`/read showing empty lists), decoupled from `uiDrivenOrAppRun`. Higher-value but needs a new detection primitive.
+3. If keeping two same-condition rules, add per-turn multi-action or an explicit ordering/priority so a starved rule can still surface — a broader engine change.
+
+**Meta-point:** this + finding #12 are both **rule-activation regressions, not engine bugs** — the primitives work; composing multiple rules over the same coarse `reproduce` intent creates interference (over-firing in the wrong phase; starving a sibling). Reinforces the #12 conclusion that the `reproduce` intent is too coarse without `userTaskKind`, and that same-condition rules need merging or prioritization.
 
 ---
 
