@@ -2,12 +2,24 @@ import {Box, Text} from 'ink';
 import React from 'react';
 import {appendToolDefinitionsToPrompt} from '@/ai-sdk-client/tools/system-prompt-assembler';
 import {ConversationStateManager} from '@/app/utils/conversation-state';
+import AssistantMessage from '@/components/assistant-message';
+import AssistantReasoning from '@/components/assistant-reasoning';
 import UserMessage from '@/components/user-message';
 import {getAppConfig} from '@/config/index';
+import {
+	getSteeringEnabled,
+	getSteeringVerbose,
+	subscribeSteeringPrefs,
+} from '@/config/preferences';
 import {CommandIntegration} from '@/custom-commands/command-integration';
 import {useTheme} from '@/hooks/useTheme';
 import {generateKey} from '@/session/key-generator';
 import {formatAvailableSkillsForPrompt} from '@/skills/prompt';
+import {
+	createInnerDaemonExecutor,
+	loadAndCreateSteeringEngine,
+} from '@/steering';
+import type {SteeringEngine} from '@/steering/steering-engine';
 import {getTuneToolMode} from '@/types/config';
 import type {ImageAttachment, Message} from '@/types/core';
 import {MessageBuilder} from '@/utils/message-builder';
@@ -16,7 +28,10 @@ import {
 	buildSystemPromptBlocks,
 	setLastBuiltPrompt,
 } from '@/utils/prompt-builder';
-import {processAssistantResponse} from './conversation/conversation-loop';
+import {
+	flushPendingActivityToStatic,
+	processAssistantResponse,
+} from './conversation/conversation-loop';
 import {createResetStreamingState} from './state/streaming-state';
 import type {ChatHandlerReturn, UseChatHandlerProps} from './types';
 import {displayError as displayErrorHelper} from './utils/message-helpers';
@@ -270,12 +285,107 @@ export function useChatHandler({
 		return new CommandIntegration(customCommandLoader, toolManager);
 	}, [toolManager, customCommandLoader]);
 
+	// Auto-steering engine (InnerDaemon). Built once client + toolManager are
+	// available; rules load from .nanocoder/steering/ (project) + the personal
+	// config dir. Recreated only when the model or toolManager changes (a model
+	// switch must update the engine's model gate). The InnerDaemon SubagentExecutor
+	// is bound lazily on first evaluation to avoid constructing it eagerly on
+	// every render (and to avoid a hard dependency on SubagentLoader being
+	// initialized — InnerDaemon is a built-in, always-available subagent).
+	const steeringEngineRef = React.useRef<SteeringEngine | null>(null);
+	const innerdaemonBoundRef = React.useRef(false);
+	// Reactive reads of the InnerDaemon preferences. useSyncExternalStore lets a
+	// toggle from anywhere (the /innerdaemon command, the Settings dialog) rebuild
+	// or tear down the engine both directions at runtime — the setters notify via
+	// subscribeSteeringPrefs.
+	const steeringEnabledPref = React.useSyncExternalStore(
+		subscribeSteeringPrefs,
+		getSteeringEnabled,
+		getSteeringEnabled,
+	);
+	const steeringVerbosePref = React.useSyncExternalStore(
+		subscribeSteeringPrefs,
+		getSteeringVerbose,
+		getSteeringVerbose,
+	);
+	const steeringEngine = React.useMemo<SteeringEngine | null>(() => {
+		// Disabled → engine is never built or run (the loop treats null as "skip
+		// evaluation"): no InnerDaemon subagent calls, no blocks/nudges.
+		if (!steeringEnabledPref || !client || !toolManager) {
+			steeringEngineRef.current = null;
+			return null;
+		}
+		const engine = loadAndCreateSteeringEngine(
+			process.cwd(),
+			currentModel,
+			() => process.cwd(),
+		);
+		steeringEngineRef.current = engine;
+		innerdaemonBoundRef.current = false; // re-bind after recreation
+		return engine;
+	}, [steeringEnabledPref, currentModel, client, toolManager]);
+
+	// Lazy-bind the InnerDaemon executor the first time the engine is used. Kept
+	// out of the memo so we don't construct a SubagentExecutor on every render.
+	const ensureInnerdaemonBound = React.useCallback(() => {
+		const engine = steeringEngineRef.current;
+		if (!engine || innerdaemonBoundRef.current || !client || !toolManager)
+			return;
+		// Wire the live mode ref (same source the conversation loop reads) so
+		// InnerDaemon's read-only probes follow the user's current mode. Without
+		// it the executor snapshots 'normal' and its execute_bash checks pop a
+		// spurious confirmation prompt even in yolo.
+		const executor = createInnerDaemonExecutor(
+			toolManager,
+			client,
+			developmentModeRef
+				? () => developmentModeRef.current ?? 'normal'
+				: undefined,
+		);
+		engine.bindExecutor(executor);
+		innerdaemonBoundRef.current = true;
+	}, [client, toolManager, developmentModeRef]);
+
+	// Keep the engine's model id in sync with the active model (the memo above
+	// recreates the whole engine on model change, but this covers the case where
+	// the engine is reused and only the model string differs).
+	React.useEffect(() => {
+		if (steeringEngineRef.current) {
+			steeringEngineRef.current.setModelId(currentModel);
+		}
+	}, [currentModel]);
+
+	// The slash command the user invoked for the current conversation loop, if
+	// any (e.g. 'worktree'). Detected in handleChatMessage and read by the
+	// conversation loop via the userTriggeredSkill param so steering rules keyed
+	// on `userTriggeredSkill` can fire.
+	const userTriggeredSkillRef = React.useRef<string | undefined>(undefined);
+
 	// State for streaming message content
 	const [streamingContent, setStreamingContent] = React.useState<string>('');
 	const [isGenerating, setIsGenerating] = React.useState<boolean>(false);
 	const [streamingReasoning, setStreamingReasoning] =
 		React.useState<string>('');
 	const [tokenCount, setTokenCount] = React.useState<number>(0);
+
+	// Mirror the in-flight streamed text/reasoning so the interrupt/error path
+	// can commit the uncommitted partial to the static transcript. The
+	// conversation loop clears these to '' right before it commits a completed
+	// turn, so at abort-throw time the refs hold exactly the text that was
+	// visible in the live region but not yet in scrollback.
+	const streamedContentRef = React.useRef('');
+	const streamedReasoningRef = React.useRef('');
+	const setStreamingContentTracked = React.useCallback((content: string) => {
+		streamedContentRef.current = content;
+		setStreamingContent(content);
+	}, []);
+	const setStreamingReasoningTracked = React.useCallback(
+		(reasoning: string) => {
+			streamedReasoningRef.current = reasoning;
+			setStreamingReasoning(reasoning);
+		},
+		[],
+	);
 
 	// Helper to reset all streaming state
 	const resetStreamingState = React.useCallback(
@@ -313,6 +423,22 @@ export function useChatHandler({
 		async (systemMessage: Message, msgs: Message[]) => {
 			if (!client) return;
 
+			// Bind the InnerDaemon executor lazily on first conversation (cheap no-op
+			// after the first call). Disabled for non-interactive/headless runs to
+			// avoid steering background automation.
+			if (!nonInteractiveMode) {
+				ensureInnerdaemonBound();
+			}
+
+			// Reset per-conversation steering fire state so a new user turn starts
+			// with a clean escalation budget.
+			steeringEngineRef.current?.resetFireState();
+
+			// A previous turn's partials must never leak into this conversation's
+			// interrupt handling (e.g. an immediate pre-stream failure).
+			streamedContentRef.current = '';
+			streamedReasoningRef.current = '';
+
 			try {
 				await processAssistantResponse({
 					systemMessage,
@@ -322,8 +448,8 @@ export function useChatHandler({
 					abortController,
 					setAbortController,
 					setIsGenerating,
-					setStreamingReasoning,
-					setStreamingContent,
+					setStreamingReasoning: setStreamingReasoningTracked,
+					setStreamingContent: setStreamingContentTracked,
 					setTokenCount,
 					setMessages,
 					addToChatQueue,
@@ -355,8 +481,49 @@ export function useChatHandler({
 							<PrivacyNotice key={generateKey('privacy')} message={message} />,
 						);
 					},
+					// Auto-steering: pass the engine (null when disabled — subagents,
+					// headless, or before client/toolManager are ready). turnFacts
+					// starts empty for each new conversation loop and accumulates
+					// inside processAssistantResponse as turns recur.
+					steeringEngine: nonInteractiveMode ? null : steeringEngine,
+					steeringVerbose: steeringVerbosePref,
+					turnFacts: [],
+					userTriggeredSkill: userTriggeredSkillRef.current,
 				});
 			} catch (error) {
+				// The loop unwound exceptionally (Escape/interrupt or a mid-turn
+				// error), skipping every natural flush point. Commit what the user
+				// could already see in the live region — the grouped tool tally
+				// (and any pending omnicode Thought run) plus the partially
+				// streamed reasoning/text — to the static transcript BEFORE the
+				// conversation-complete cleanup wipes it, so already-executed
+				// steps collapse in place instead of vanishing.
+				flushPendingActivityToStatic(
+					addToChatQueue,
+					compactToolCountsRef,
+					onSetCompactToolCounts,
+					compactToolDisplayRef,
+				);
+				if (streamedReasoningRef.current.trim()) {
+					addToChatQueue(
+						<AssistantReasoning
+							key={generateKey('assistant-reasoning-interrupted')}
+							reasoning={streamedReasoningRef.current}
+							expand={reasoningExpandedRef?.current ?? false}
+						/>,
+					);
+				}
+				if (streamedContentRef.current.trim()) {
+					addToChatQueue(
+						<AssistantMessage
+							key={generateKey('assistant-interrupted')}
+							message={streamedContentRef.current}
+							model={currentModel}
+						/>,
+					);
+				}
+				streamedReasoningRef.current = '';
+				streamedContentRef.current = '';
 				displayError(error, 'chat-error');
 				// Signal completion on error to avoid hanging in non-interactive mode
 				onConversationComplete?.();
@@ -391,6 +558,11 @@ export function useChatHandler({
 			onApiCallComplete,
 			privacySessionMapRef,
 			privacyEnabled,
+			steeringEngine,
+			steeringVerbosePref,
+			ensureInnerdaemonBound,
+			setStreamingContentTracked,
+			setStreamingReasoningTracked,
 		],
 	);
 
@@ -404,6 +576,11 @@ export function useChatHandler({
 
 		// Record conversation start time for elapsed time display
 		conversationStartTimeRef.current = Date.now();
+
+		// Detect a leading slash command (e.g. '/worktree …') so steering rules
+		// keyed on `userTriggeredSkill` can fire for this conversation loop.
+		const commandMatch = /^\s*\/([a-zA-Z0-9:_-]+)/.exec(message);
+		userTriggeredSkillRef.current = commandMatch ? commandMatch[1] : undefined;
 
 		// The submit chain hands us the display version (with [@file]
 		// placeholders) alongside the fully assembled message. Use it directly

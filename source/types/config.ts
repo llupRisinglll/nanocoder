@@ -440,4 +440,16 @@ export interface UserPreferences {
 	alternateScreen?: boolean;
 	/** Max diff lines shown in compact-mode file results. 0 = unlimited. Default 20. */
 	compactDiffMaxLines?: number;
+	/**
+	 * Auto-steering (InnerDaemon) master switch. true (default): the steering
+	 * engine evaluates each turn and may nudge/block/stop. false: the engine is
+	 * never built or run — useful for A/B comparison against un-steered behavior.
+	 */
+	steeringEnabled?: boolean;
+	/**
+	 * Verbose "proof-of-life" trace for InnerDaemon. false (default): silent.
+	 * true: every turn's steering evaluation emits a single dim trace line into
+	 * the transcript, even on a noop turn, so it's visibly alive.
+	 */
+	steeringVerbose?: boolean;
 }

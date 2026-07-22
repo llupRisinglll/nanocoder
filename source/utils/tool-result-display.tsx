@@ -600,6 +600,9 @@ function CompactDetailResult({
 
 	// Build the output preview: strip ANSI so escape codes from bash output
 	// can't corrupt the layout, drop trailing blank lines, cap line count.
+	// The preview keeps the TAIL of the output (the last lines are what show
+	// results/errors), with a "… +N earlier lines" hint above it when truncated
+	// — long content collapses but its tail stays visible in the transcript.
 	let previewLines: string[] = [];
 	let hiddenCount = 0;
 	if (output) {
@@ -608,7 +611,7 @@ function CompactDetailResult({
 			.replace(/\s+$/, '')
 			.split('\n');
 		const cap = expanded ? PREVIEW_EXPANDED_LINES : PREVIEW_COLLAPSED_LINES;
-		previewLines = allLines.slice(0, cap);
+		previewLines = allLines.slice(-cap);
 		hiddenCount = allLines.length - previewLines.length;
 	}
 
@@ -618,20 +621,25 @@ function CompactDetailResult({
 				toolName={getCompactDisplayToolName(toolName)}
 				detail={flatDetail}
 			/>
+			{hiddenCount > 0 && (
+				<Box>
+					<Text color={colors.secondary}>{' ⎿ '}</Text>
+					<Text color={colors.secondary}>
+						… +{hiddenCount} earlier line{hiddenCount === 1 ? '' : 's'}
+						{!nonInteractive && !expanded ? ' (ctrl+r to expand)' : ''}
+					</Text>
+				</Box>
+			)}
 			{previewLines.map((line, i) => (
 				<Box key={`preview-${i}-${line.slice(0, 16)}`}>
-					<Text color={colors.secondary}>{i === 0 ? ' ⎿ ' : '   '}</Text>
+					<Text color={colors.secondary}>
+						{i === 0 && hiddenCount === 0 ? ' ⎿ ' : '   '}
+					</Text>
 					<Text wrap="truncate-end" color={colors.secondary}>
 						{line || ' '}
 					</Text>
 				</Box>
 			))}
-			{hiddenCount > 0 && (
-				<Text color={colors.secondary}>
-					{'   '}… +{hiddenCount} line{hiddenCount === 1 ? '' : 's'}
-					{!nonInteractive && !expanded ? ' (ctrl+r to expand)' : ''}
-				</Text>
-			)}
 		</Box>
 	);
 }

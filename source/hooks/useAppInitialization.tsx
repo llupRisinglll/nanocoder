@@ -510,7 +510,7 @@ export function useAppInitialization({
 			// bundle skills register their subagents. Re-publish now so the
 			// `agent` tool's parameter description and the system prompt's
 			// subagent block include bundle agents (e.g. k8s_agent).
-			const refreshedAgents = await subagentLoader.listSubagents();
+			const refreshedAgents = await subagentLoader.listInvokableSubagents();
 			const refreshedSummaries = refreshedAgents.map(a => ({
 				name: a.name,
 				description: a.description,
@@ -599,7 +599,7 @@ export function useAppInitialization({
 			await Promise.all([
 				start(newToolManager, newCustomCommandLoader, preferences),
 				subagentLoader.initialize().then(async () => {
-					const availableAgents = await subagentLoader.listSubagents();
+					const availableAgents = await subagentLoader.listInvokableSubagents();
 					const agentSummaries = availableAgents.map(a => ({
 						name: a.name,
 						description: a.description,

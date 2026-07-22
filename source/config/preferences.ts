@@ -281,3 +281,59 @@ export function updateAlternateScreen(value: boolean): void {
 	preferences.alternateScreen = value;
 	savePreferences(preferences);
 }
+
+// --- Auto-steering (InnerDaemon) preferences -------------------------------
+//
+// These two toggles can be mutated from anywhere (the /innerdaemon slash
+// command, the Settings dialog). useChatHandler subscribes so the steering
+// engine memo can rebuild/teardown reactively; the subscription is a plain
+// listener set (no React dependency here).
+
+type SteeringPrefsListener = () => void;
+const steeringPrefsListeners = new Set<SteeringPrefsListener>();
+
+/**
+ * Subscribe to InnerDaemon preference changes. Returns an unsubscribe fn.
+ * Backs a `useSyncExternalStore` in useChatHandler so toggling at runtime
+ * rebuilds or tears down the steering engine both directions.
+ */
+export function subscribeSteeringPrefs(
+	listener: SteeringPrefsListener,
+): () => void {
+	steeringPrefsListeners.add(listener);
+	return () => {
+		steeringPrefsListeners.delete(listener);
+	};
+}
+
+function emitSteeringPrefsChanged(): void {
+	for (const listener of steeringPrefsListeners) listener();
+}
+
+/** Whether auto-steering (InnerDaemon) is enabled. Default true. */
+export function getSteeringEnabled(): boolean {
+	const preferences = loadPreferences();
+	return preferences.steeringEnabled ?? true;
+}
+
+/** Enable/disable auto-steering (InnerDaemon) and notify subscribers. */
+export function updateSteeringEnabled(value: boolean): void {
+	const preferences = loadPreferences();
+	preferences.steeringEnabled = value;
+	savePreferences(preferences);
+	emitSteeringPrefsChanged();
+}
+
+/** Whether the verbose "proof-of-life" trace is on. Default false. */
+export function getSteeringVerbose(): boolean {
+	const preferences = loadPreferences();
+	return preferences.steeringVerbose ?? false;
+}
+
+/** Toggle the verbose "proof-of-life" trace and notify subscribers. */
+export function updateSteeringVerbose(value: boolean): void {
+	const preferences = loadPreferences();
+	preferences.steeringVerbose = value;
+	savePreferences(preferences);
+	emitSteeringPrefsChanged();
+}

@@ -296,6 +296,32 @@ test('yolo mode bypasses approval for high-risk dynamic tools', async t => {
 	);
 });
 
+test('yolo mode auto-executes benign read-only bash commands', async t => {
+	// The two commands observed prompting in the wild ("block + yolo →
+	// spurious confirmation") — the policy itself must never gate them in yolo.
+	t.false(
+		await evaluateNeedsApproval(executeBashTool, 'yolo', {
+			command: 'curl -s -o /dev/null -w "%{http_code}" http://localhost:4161/',
+		}),
+	);
+	t.false(
+		await evaluateNeedsApproval(executeBashTool, 'yolo', {
+			command:
+				"lsof -i :4161 2>/dev/null || ss -tlnp 'sport = :4161' 2>/dev/null || echo none",
+		}),
+	);
+});
+
+test('dangerous bash commands are refused by the validator in every mode', async t => {
+	// Yolo skips APPROVAL, not VALIDATION: the dangerous-pattern validator
+	// wraps the handler on every execution path (withValidation in the
+	// registry), so these never execute regardless of mode.
+	for (const command of ['rm -rf /', 'mkfs.ext4 /dev/sda1', 'dd if=/dev/zero of=/dev/sda']) {
+		const result = await executeBashTool.validator?.({command});
+		t.false(result?.valid, `expected validator to refuse: ${command}`);
+	}
+});
+
 // ============================================================================
 // Fail-safe: unknown tool requires approval
 // ============================================================================

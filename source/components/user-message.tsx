@@ -2,7 +2,7 @@ import {Box, Text} from 'ink';
 import {memo} from 'react';
 import {getTextboxBackground} from '@/config/themes';
 import {useNonInteractiveRender} from '@/hooks/useNonInteractiveRender';
-import {useTerminalWidth} from '@/hooks/useTerminalWidth';
+import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
 import type {UserMessageProps} from '@/types/index';
 import {wrapWithTrimmedContinuations} from '@/utils/text-wrapping';
@@ -87,7 +87,7 @@ export default memo(function UserMessage({
 	imageCount = 0,
 }: UserMessageProps) {
 	const {colors} = useTheme();
-	const boxWidth = useTerminalWidth();
+	const {boxWidth, actualWidth} = useResponsiveTerminal();
 	const nonInteractive = useNonInteractiveRender();
 	const tokens = calculateTokens(tokenContent ?? message);
 
@@ -101,10 +101,23 @@ export default memo(function UserMessage({
 	// no border or label, instead of the "You:" block
 	const arrowMode = Boolean(colors.promptChar);
 
+	// boxWidth floors at 40 (useTerminalWidth), which EXCEEDS the real width of
+	// terminals narrower than ~44 columns. A fixed-width row wider than the
+	// terminal hard-wraps in the terminal itself; Ink's erase accounting counts
+	// logical newlines only, so every subsequent repaint under-erases and
+	// composites over the residue rows — the garbled/overlapping echo seen when
+	// a wrapped multi-line message commits from the live region into Static.
+	// Cap the arrow box at the true terminal width (minus the root padding
+	// column and a right-edge safety column). At columns >= 44 this equals
+	// boxWidth exactly, so normal-width rendering is unchanged; the classic
+	// (non-arrow) path is untouched for theme parity.
+	const arrowBoxWidth = Math.max(20, Math.min(boxWidth, actualWidth - 2));
+	const effectiveBoxWidth = arrowMode ? arrowBoxWidth : boxWidth;
+
 	// Inner text width. Arrow mode: outer width minus side margins (2), rounded
 	// border (2), paddingX (2), and the "❯ " prefix (2). Classic: left border
 	// (1) + padding (1 each side).
-	const textWidth = boxWidth - (arrowMode ? 8 : 3);
+	const textWidth = effectiveBoxWidth - (arrowMode ? 8 : 3);
 
 	// Strip VS Code context blocks and pre-wrap to avoid Ink's trim:false
 	// leaving leading spaces on wrapped lines
@@ -151,7 +164,7 @@ export default memo(function UserMessage({
 				<Box
 					marginTop={1}
 					marginBottom={0}
-					width={boxWidth}
+					width={effectiveBoxWidth}
 					backgroundColor={ICON_PROMPT_HISTORY_BACKGROUND}
 				>
 					<Text color={colors.primary} bold>

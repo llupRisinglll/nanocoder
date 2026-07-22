@@ -32,6 +32,12 @@ export interface SubagentConfig {
 	 * the subagent's effective tool list, even when those tools are scoped.
 	 */
 	ownerSkill?: string;
+	/**
+	 * Internal subagents are invoked only programmatically (e.g. by the
+	 * steering engine), never exposed to — or invokable via — the main
+	 * model's `agent` tool. They stay resolvable by name for their owner.
+	 */
+	internal?: boolean;
 }
 
 /**
@@ -140,6 +146,8 @@ export interface SubagentFrontmatter {
 	tools?: string[];
 	/** Disallowed tools */
 	disallowedTools?: string[];
+	/** Internal-only: hidden from and not invokable via the main model's agent tool */
+	internal?: boolean;
 }
 
 /**

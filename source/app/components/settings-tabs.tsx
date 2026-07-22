@@ -9,8 +9,12 @@ import {
 	getNotificationsPreference,
 	getPasteThreshold,
 	getPrivacyPreference,
+	getSteeringEnabled,
+	getSteeringVerbose,
 	loadPreferences,
 	updateAlternateScreen,
+	updateSteeringEnabled,
+	updateSteeringVerbose,
 } from '@/config/preferences';
 import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
@@ -163,6 +167,20 @@ function buildRowsForTab(
 					label: 'Privacy',
 					value: getPrivacyPreference() ? 'on' : 'off',
 					panel: 'privacy',
+				},
+				{
+					kind: 'boolean',
+					id: 'innerdaemon',
+					label: 'InnerDaemon',
+					value: getSteeringEnabled(),
+					onToggle: () => updateSteeringEnabled(!getSteeringEnabled()),
+				},
+				{
+					kind: 'boolean',
+					id: 'innerdaemon-verbose',
+					label: 'InnerDaemon Verbose',
+					value: getSteeringVerbose(),
+					onToggle: () => updateSteeringVerbose(!getSteeringVerbose()),
 				},
 			];
 	}

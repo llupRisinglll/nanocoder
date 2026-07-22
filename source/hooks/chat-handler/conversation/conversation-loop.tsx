@@ -5,6 +5,8 @@ import AssistantReasoning, {
 	getReasoningStartTime,
 	ThoughtRunSummary,
 } from '@/components/assistant-reasoning';
+import InnerDaemonDetails from '@/components/innerdaemon-details';
+import InnerDaemonTrace from '@/components/innerdaemon-trace';
 import {
 	CompletionMessage,
 	ErrorMessage,
@@ -18,6 +20,9 @@ import {
 	MAX_REPEATED_TOOL_CALLS,
 } from '@/constants';
 import {generateKey} from '@/session/key-generator';
+import {classifyIntent} from '@/steering/intent-classifier';
+import type {SteeringEngine} from '@/steering/steering-engine';
+import type {SteeringDiagnostic, TurnFact} from '@/steering/types';
 import {
 	parseToolCalls,
 	stripEmbeddedToolCallText,
@@ -129,6 +134,31 @@ interface ProcessAssistantResponseParams {
 	// How many consecutive turns have emitted the same tool-call signature.
 	// Reaching MAX_REPEATED_TOOL_CALLS stops the loop with an actionable error.
 	repeatedToolCallCount?: number;
+	/**
+	 * Auto-steering engine (InnerDaemon). When provided, the loop evaluates it at
+	 * each turn boundary and applies any returned steering action (inject a
+	 * nudge, block a violating tool call, or stop the loop). Omit to disable
+	 * steering entirely (e.g. for subagents/headless runs).
+	 */
+	steeringEngine?: SteeringEngine | null;
+	/**
+	 * Verbose "proof-of-life" mode. When true, every steering evaluation emits a
+	 * single dim trace line into the transcript — even a noop — so the layer is
+	 * visibly alive. Only requested when the engine is present and the pref is on.
+	 */
+	steeringVerbose?: boolean;
+	/**
+	 * Accumulated per-turn facts for the steering detector. Threaded forward
+	 * through recursion (the current turn's fact is appended before recurse).
+	 * Reset by the caller at the start of each new user message.
+	 */
+	turnFacts?: TurnFact[];
+	/**
+	 * The slash command the user invoked at the start of this loop, if any
+	 * (e.g. `'worktree'`). Set by the command-integration path; consumed by
+	 * steering rules keyed on `userTriggeredSkill`.
+	 */
+	userTriggeredSkill?: string;
 }
 
 // Module-level flag: show XML fallback notice only once per process lifetime.
@@ -164,6 +194,52 @@ let pendingThoughtCount = 0;
 export const resetPendingThoughtAccumulator = () => {
 	pendingThoughtMs = 0;
 	pendingThoughtCount = 0;
+};
+
+/**
+ * Commit any pending live-region activity (the grouped compact tool tally
+ * and, on omnicode, an accumulated collapsed-Thought run) to the static chat
+ * queue.
+ *
+ * The conversation loop calls this at its natural flush points (narrative
+ * text, confirmation prompts, loop end). The chat handler ALSO calls it when
+ * the loop unwinds exceptionally — Escape/interrupt or a mid-turn error —
+ * because otherwise the tally that was visible in the live region one frame
+ * earlier is discarded by the conversation-complete cleanup and the
+ * already-executed steps silently vanish from the transcript.
+ */
+export const flushPendingActivityToStatic = (
+	addToChatQueue: (component: React.ReactNode) => void,
+	compactToolCountsRef?: React.MutableRefObject<CompactToolActivityMap>,
+	onSetCompactToolCounts?: (counts: CompactToolActivityMap | null) => void,
+	compactToolDisplayRef?: React.RefObject<boolean>,
+): void => {
+	const counts = compactToolCountsRef?.current ?? {};
+	const hasToolCounts = Object.keys(counts).length > 0;
+
+	if (pendingThoughtCount > 0) {
+		addToChatQueue(
+			<ThoughtRunSummary
+				key={generateKey('thought-run-summary')}
+				totalMs={pendingThoughtMs}
+				toolCounts={hasToolCounts ? counts : undefined}
+				toolCountsExpanded={!(compactToolDisplayRef?.current ?? true)}
+			/>,
+		);
+		pendingThoughtMs = 0;
+		pendingThoughtCount = 0;
+		if (compactToolCountsRef) compactToolCountsRef.current = {};
+		onSetCompactToolCounts?.(null);
+		return;
+	}
+
+	if (hasToolCounts && compactToolCountsRef) {
+		displayCompactCountsSummary(counts, addToChatQueue, {
+			indent: lastTurnHadReasoning,
+		});
+		compactToolCountsRef.current = {};
+	}
+	onSetCompactToolCounts?.(null);
 };
 
 /**
@@ -217,6 +293,10 @@ export const processAssistantResponse = async (
 		privacySessionMapRef,
 		privacyEnabled = false,
 		onPrivacyEvent,
+		steeringEngine = null,
+		steeringVerbose = false,
+		turnFacts = [],
+		userTriggeredSkill,
 	} = params;
 
 	const startTime = conversationStartTime ?? Date.now();
@@ -253,32 +333,12 @@ export const processAssistantResponse = async (
 	// pendingThoughtMs, so this branch is dead for them and the classic
 	// CompactCountsSummaryBlock path below is unchanged.
 	const flushCompactCounts = () => {
-		const counts = compactToolCountsRef?.current ?? {};
-		const hasToolCounts = Object.keys(counts).length > 0;
-
-		if (pendingThoughtCount > 0) {
-			addToChatQueue(
-				<ThoughtRunSummary
-					key={generateKey('thought-run-summary')}
-					totalMs={pendingThoughtMs}
-					toolCounts={hasToolCounts ? counts : undefined}
-					toolCountsExpanded={!(compactToolDisplayRef?.current ?? true)}
-				/>,
-			);
-			pendingThoughtMs = 0;
-			pendingThoughtCount = 0;
-			if (compactToolCountsRef) compactToolCountsRef.current = {};
-			onSetCompactToolCounts?.(null);
-			return;
-		}
-
-		if (hasToolCounts && compactToolCountsRef) {
-			displayCompactCountsSummary(counts, addToChatQueue, {
-				indent: lastTurnHadReasoning,
-			});
-			compactToolCountsRef.current = {};
-		}
-		onSetCompactToolCounts?.(null);
+		flushPendingActivityToStatic(
+			addToChatQueue,
+			compactToolCountsRef,
+			onSetCompactToolCounts,
+			compactToolDisplayRef,
+		);
 	};
 
 	// Flush both the compact-count summary and any pending live task list.
@@ -993,10 +1053,127 @@ export const processAssistantResponse = async (
 					processToolUse,
 				);
 			}
+
+			// Auto-steering: build the current turn's fact, run the engine, and
+			// apply its action before recursing. The engine is null for runs that
+			// don't steering (subagents, headless). A `stop` action terminates the
+			// loop here; `inject`/`block` add a message to the builder and a
+			// visible InnerDaemon detail to the chat queue, then continue.
+			const currentTurnIndex = turnFacts.length;
+			const currentFact: TurnFact = {
+				turnIndex: currentTurnIndex,
+				wallClockMs: Date.now() - startTime,
+				toolCalls: validToolCalls,
+				toolResults: turnResults,
+				intentClass: classifyIntent(validToolCalls),
+				cwd: process.cwd(),
+				hadError: turnResults.some(
+					r =>
+						r.isError ||
+						r.content.startsWith('Error: ') ||
+						r.content.startsWith('⚒ Validation failed'),
+				),
+				errorMessageDigest: turnResults
+					.find(
+						r =>
+							r.isError ||
+							r.content.startsWith('Error: ') ||
+							r.content.startsWith('⚒ Validation failed'),
+					)
+					?.content.split('\n')[0],
+				userTriggeredSkill,
+			};
+			const nextTurnFacts = [...turnFacts, currentFact];
+
+			let steeringMessage: Message | null = null;
+			let steeringBlockResult: {ids: string[]; detail: React.ReactNode} | null =
+				null;
+			let steeringStop = false;
+			if (steeringEngine) {
+				// Verbose "proof-of-life": collect the diagnostic from the SAME
+				// evaluation that drives real steering (the engine only does the
+				// extra work when onDiagnostic is supplied). Emit the dim trace
+				// AFTER the action is applied below so it reads bottom-to-top with
+				// any nudge/block it explains.
+				let steeringDiagnostic: SteeringDiagnostic | null = null;
+				const action = await steeringEngine.evaluate(
+					nextTurnFacts,
+					controller.signal,
+					steeringVerbose
+						? {onDiagnostic: d => (steeringDiagnostic = d)}
+						: undefined,
+				);
+				if (steeringDiagnostic) {
+					addToChatQueue(
+						<InnerDaemonTrace
+							key={generateKey('steering-trace')}
+							diagnostic={steeringDiagnostic}
+						/>,
+					);
+				}
+				if (action) {
+					if (action.type === 'stop') {
+						steeringStop = true;
+						await flushAll();
+						addToChatQueue(
+							<ErrorMessage
+								key={generateKey('steering-stop')}
+								message={`InnerDaemon stopped the loop: ${action.reason}`}
+								hideBox={true}
+							/>,
+						);
+					} else if (action.type === 'block') {
+						// Cancel the violating tool calls and surface the constraint.
+						steeringBlockResult = {
+							ids: action.toolCallIds ?? [],
+							detail: (
+								<InnerDaemonDetails
+									key={generateKey('steering-block')}
+									message={action.message}
+									urgency={action.urgency ?? 'light'}
+								/>
+							),
+						};
+						steeringMessage = {role: 'user', content: action.message};
+					} else if (action.type === 'inject') {
+						steeringMessage = {role: 'user', content: action.message};
+						addToChatQueue(
+							<InnerDaemonDetails
+								key={generateKey('steering-inject')}
+								message={action.message}
+								urgency={action.urgency ?? 'light'}
+							/>,
+						);
+					}
+					// noop: steer nothing, continue normally.
+				}
+			}
+
+			if (steeringStop) {
+				setIsGenerating(false);
+				if (onConversationComplete) {
+					onConversationComplete();
+				}
+				return;
+			}
+
 			const builder = new MessageBuilder(updatedMessages);
 			builder.addToolResults(turnResults);
+			if (steeringBlockResult && steeringBlockResult.ids.length > 0) {
+				// Append cancellation results for the blocked tool calls so the
+				// SDK's tool-call/result pairing stays intact.
+				const blockedIds = steeringBlockResult.ids;
+				const blocked = validToolCalls.filter(tc => blockedIds.includes(tc.id));
+				if (blocked.length > 0) {
+					builder.addToolResults(createCancellationResults(blocked));
+				}
+				addToChatQueue(steeringBlockResult.detail);
+			}
 			if (autoDiagnosticsMessage) {
 				builder.addMessage(autoDiagnosticsMessage);
+			}
+			if (steeringMessage) {
+				builder.addMessage(steeringMessage);
 			}
 			const nextMessages = builder.build();
 			setMessages(nextMessages);
@@ -1014,6 +1191,8 @@ export const processAssistantResponse = async (
 				malformedRetryCount: 0,
 				lastToolSignature: currentToolSignature,
 				repeatedToolCallCount: currentRepeatedCount,
+				turnFacts: nextTurnFacts,
+				userTriggeredSkill,
 			});
 			return;
 		}

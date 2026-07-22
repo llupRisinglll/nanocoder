@@ -167,6 +167,17 @@ export class SubagentLoader {
 	}
 
 	/**
+	 * List subagents invokable by the main model's `agent` tool — i.e. all
+	 * loaded subagents except `internal: true` ones (which are reserved for
+	 * programmatic callers such as the steering engine). Use this for any
+	 * model-facing list (the agent tool's enum, the system prompt block).
+	 * @returns Array of non-internal subagent configs
+	 */
+	async listInvokableSubagents(): Promise<SubagentConfigWithSource[]> {
+		return (await this.listSubagents()).filter(a => !a.internal);
+	}
+
+	/**
 	 * Check if a subagent exists.
 	 * @param name - The subagent name
 	 * @returns True if the subagent exists
