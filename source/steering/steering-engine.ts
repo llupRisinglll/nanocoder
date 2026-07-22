@@ -96,7 +96,12 @@ const ESCALATE_BLOCK_LEVEL = 3;
 function escalateAction(action: SteeringAction, level: number): SteeringAction {
 	if (action.type !== 'inject') return action;
 	if (level >= ESCALATE_BLOCK_LEVEL) {
-		return {type: 'block', message: action.message, urgency: 'firm'};
+		return {
+			type: 'block',
+			message: action.message,
+			urgency: 'firm',
+			ruleId: action.ruleId,
+		};
 	}
 	if (level >= 1) {
 		return {...action, urgency: 'firm'};
@@ -228,6 +233,7 @@ export class SteeringEngine {
 				toolCallIds: [violation.toolCallId],
 				message: violation.constraint.message,
 				urgency: 'light',
+				ruleId: violation.rule.id,
 			};
 		}
 
@@ -298,6 +304,30 @@ export class SteeringEngine {
 			lastFireTurn: -Infinity,
 		};
 
+		// announce rules: proactive one-shot scenario-context injection. The moment
+		// the scenario is in scope, inject the rule body (a fixed preference — no
+		// InnerDaemon call, no judgment) up to `maxFires` (default 1), then go
+		// DORMANT. Unlike corrective rules it NEVER stop-escalates: an
+		// already-surfaced preference has nothing firmer to escalate to. This is
+		// how scenario-specific guidance (frontend prefs, PR prefs, E2E discipline)
+		// stays OUT of the always-on AGENTS.md and surfaces only when relevant.
+		if (rule.mode === 'announce') {
+			if (st.count >= (rule.maxFires ?? 1)) return null;
+			if (
+				rule.cooldownTurns !== undefined &&
+				candidate.turnIndex - st.lastFireTurn < rule.cooldownTurns
+			) {
+				return null;
+			}
+			this.recordFire(rule.id, candidate.turnIndex);
+			return {
+				type: 'inject',
+				message: rule.body ?? '',
+				urgency: 'light',
+				ruleId: rule.id,
+			};
+		}
+
 		// Relapse-escalation level = how many times this rule has ALREADY fired
 		// without progress (0 on the first fire → byte-identical nudge). Threaded
 		// into the InnerDaemon request AND used to upgrade a repeated inject at
@@ -329,6 +359,7 @@ export class SteeringEngine {
 					type: 'inject',
 					message: this.detectorOnlyMessage(rule, candidate),
 					urgency: 'light',
+					ruleId: rule.id,
 				},
 				escalationLevel,
 			);
@@ -337,7 +368,13 @@ export class SteeringEngine {
 		// innerdaemon rules delegate to the secondary thinker.
 		const req = this.buildRequest(rule, candidate, facts, escalationLevel);
 		const response = await this.innerdaemon(req, signal);
-		const action = innerdaemonResponseToAction(response);
+		const raw = innerdaemonResponseToAction(response);
+		// Tag inject/block actions with the rule id so the trace header can name
+		// which steering script fired (noop/stop carry no header).
+		const action: SteeringAction =
+			raw.type === 'inject' || raw.type === 'block'
+				? {...raw, ruleId: rule.id}
+				: raw;
 
 		// Only count a fire if InnerDaemon actually steered (noop doesn't consume
 		// a fire slot — a false alarm shouldn't burn the escalation budget).

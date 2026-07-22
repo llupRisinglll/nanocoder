@@ -15,7 +15,7 @@
  */
 
 import {existsSync, readdirSync, readFileSync, statSync} from 'fs';
-import {join} from 'path';
+import {dirname, join} from 'path';
 import {getConfigPath} from '@/config/paths';
 import {
 	type SteeringCondition,
@@ -164,11 +164,53 @@ export function parseSteeringRule(filePath: string): SteeringRule | undefined {
 
 	const mode =
 		(asString(meta.mode) as SteeringMode | undefined) ?? 'innerdaemon';
-	if (mode !== 'detector-only' && mode !== 'innerdaemon') {
+	if (
+		mode !== 'detector-only' &&
+		mode !== 'innerdaemon' &&
+		mode !== 'announce'
+	) {
 		logError(
 			`steering: ${filePath} has invalid mode "${String(meta.mode)}" — skipping`,
 		);
 		return undefined;
+	}
+
+	// injectSkill (announce-mode): inline a sibling command skill's body as the
+	// announce message, resolved relative to THIS rule's file so a project rule
+	// reads project commands and a personal rule reads personal ones. The skill
+	// stays the single source of truth — no prose duplication in the rule body.
+	const injectSkill = asString(meta.injectSkill);
+	let effectiveBody = body || undefined;
+	if (injectSkill) {
+		if (!/^[a-zA-Z0-9_-]+$/.test(injectSkill)) {
+			logError(
+				`steering: ${filePath} has invalid injectSkill "${injectSkill}" (name only) — skipping`,
+			);
+			return undefined;
+		}
+		const skillPath = join(
+			dirname(filePath),
+			'..',
+			'commands',
+			`${injectSkill}.md`,
+		); // nosemgrep
+		let skillRaw: string;
+		try {
+			skillRaw = readFileSyncSafe(skillPath);
+		} catch {
+			logError(
+				`steering: ${filePath} injectSkill "${injectSkill}" → cannot read ${skillPath} — skipping`,
+			);
+			return undefined;
+		}
+		const skillBody = splitFrontmatter(skillRaw).body.trim();
+		if (!skillBody) {
+			logError(
+				`steering: ${filePath} injectSkill "${injectSkill}" resolved an empty body — skipping`,
+			);
+			return undefined;
+		}
+		effectiveBody = skillBody;
 	}
 
 	const rule: SteeringRule = {
@@ -177,9 +219,10 @@ export function parseSteeringRule(filePath: string): SteeringRule | undefined {
 		condition: parseCondition(meta.condition),
 		watch: parseWatch(meta.watch),
 		mode,
-		body: body || undefined,
+		body: effectiveBody,
 		source: filePath,
 	};
+	if (injectSkill) rule.injectSkill = injectSkill;
 	if (meta.maxFires !== undefined) rule.maxFires = asNumber(meta.maxFires, 0);
 	if (meta.cooldownTurns !== undefined)
 		rule.cooldownTurns = asNumber(meta.cooldownTurns, 0);

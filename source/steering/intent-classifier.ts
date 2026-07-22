@@ -97,6 +97,36 @@ const RULES: readonly IntentRule[] = [
 		keywords: ['git log', 'git show', 'git blame', 'git reflog'],
 	},
 	{
+		// Multi-repo batch git via gitopolis. Very specific single keyword.
+		intent: 'gitopolis',
+		keywords: ['gitopolis'],
+	},
+	{
+		// Committing / staging — surfaces the commit-discipline announce.
+		intent: 'commit',
+		keywords: ['git commit', 'git add '],
+	},
+	{
+		// Creating/editing a PR via bash (the model doing it autonomously, NOT the
+		// user typing `/create-pr` — that already injects the command body). This
+		// is the non-redundant case where the create-pr skill needs surfacing.
+		intent: 'pr-create',
+		keywords: ['gh pr create', 'gh pr edit'],
+	},
+	{
+		// Creating a GitHub issue — surfaces the don't-create-issues discipline
+		// (finish in-session unless the user explicitly asked for an issue).
+		intent: 'issue-create',
+		keywords: ['gh issue create'],
+	},
+	{
+		// Operating / debugging the prod or CI server (pm2, /opt/kserp). NOT
+		// local dev (that's runtime-setup) — checked first so a pm2 turn is
+		// prod-ops, not misread as dev-server setup.
+		intent: 'prod-ops',
+		keywords: ['pm2 ', '/opt/kserp'],
+	},
+	{
 		// Worktree creation — hand-rolled or scripted. The /worktree hand-roll
 		// case from the simulation: `git worktree add`, `mkdir` of a worktrees
 		// path, worktree-create.sh, .gitopolis reads. A bare read over an
@@ -126,6 +156,29 @@ const RULES: readonly IntentRule[] = [
 		],
 	},
 	{
+		// CI/CD pipeline work — surfaces the hilinga-cicd announce.
+		intent: 'ci',
+		keywords: ['deploy.yml', 'plugin-ci', 'plugin_token', 'gh pr checks'],
+	},
+	{
+		// Release sequencing — changeset authoring is the strong, specific signal
+		// (bare branch creation is deliberately NOT here — too broad).
+		intent: 'branch-release',
+		keywords: ['.changeset', 'changeset add'],
+	},
+	{
+		// Writing a migration / schema / RLS — surfaces the migration announce.
+		// Strong DDL signals only (bare `.sql` omitted to avoid firing on reads).
+		intent: 'migration-sql',
+		keywords: [
+			'create table',
+			'alter table',
+			'create policy',
+			'row level security',
+			'kernel_migrations',
+		],
+	},
+	{
 		// TDD — writing/running tests. test runners, spec files, vitest/jest.
 		intent: 'tdd',
 		keywords: [
@@ -139,6 +192,47 @@ const RULES: readonly IntentRule[] = [
 			'pnpm test',
 			'test:types',
 		],
+	},
+	{
+		// Timezone/date work (SQL + specs). Checked AFTER tdd so a timezone test
+		// file still classifies `tdd`; this catches non-test timezone SQL.
+		intent: 'timezone-date',
+		keywords: ['at time zone', 'asia/manila', 'timestamptz', '::date'],
+	},
+	{
+		// Security-sensitive code — best-effort detection (LOW confidence, tight
+		// keyword set to limit over-fire). Surfaces the security-audit skill.
+		// Misses are expected: the user still invokes security-audit manually for
+		// security work the detector can't see.
+		intent: 'security-sensitive',
+		keywords: [
+			'password_hash',
+			'bcrypt',
+			'multipart/form-data',
+			'cf_connecting_ip',
+			'x-api-key',
+			'auth.workspace_id',
+		],
+	},
+	{
+		// Reusable-lib / build-mechanics work (ksui, plugin-sdk, package build).
+		// Scoped to library/build signals, NOT the over-broad `kplugin_` path.
+		intent: 'pluginlib',
+		keywords: ['build:packages', '@kahitsan/plugin-sdk', 'vite.remote.config'],
+	},
+	{
+		// Taking a Playwright screenshot — the ONLY signal the screenshots
+		// reference fact is relevant (scoped to the screenshot tool, not all
+		// browser navigation).
+		intent: 'playwright-ui',
+		keywords: ['browser_take_screenshot'],
+	},
+	{
+		// Pre-PR verification gates — surfaces the hilinga-verify skill. Test
+		// RUNNERS are `tdd`; these are the type-check / lint / dead-code gates
+		// run when wrapping up a task.
+		intent: 'verify',
+		keywords: ['tsc --noemit', 'eslint', 'knip', 'dependency-cruiser'],
 	},
 ];
 

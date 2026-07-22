@@ -114,6 +114,7 @@ test('evaluate: git log constraint → instant block, no InnerDaemon call', asyn
 		toolCallIds: ['a'],
 		message: 'git history forbidden',
 		urgency: 'light',
+		ruleId: 'no-history',
 	});
 	t.false(innerdaemonCalled, 'InnerDaemon must not be called for a constraint block');
 });
@@ -146,7 +147,71 @@ test('evaluate: budget exceeded → InnerDaemon inject fires', async t => {
 	// 3 turns in-scope, budget=2 → exceeded
 	const facts = [worktreeFact(0), worktreeFact(1), worktreeFact(2)];
 	const action = await engine.evaluate(facts);
-	t.deepEqual(action, {type: 'inject', message: 'use the scripts', urgency: 'light'});
+	t.deepEqual(action, {
+		type: 'inject',
+		message: 'use the scripts',
+		urgency: 'light',
+		ruleId: 'worktree-supervision',
+	});
+});
+
+// --- announce mode: proactive one-shot scenario injection -------------------
+
+const announceRule: SteeringRule = {
+	id: 'frontend-prefs',
+	mode: 'announce',
+	condition: {intentClass: 'frontend-edit'},
+	body: 'Reuse ksui. Use theme tokens.',
+};
+
+const frontendFact = (turnIndex: number): TurnFact =>
+	makeFact({
+		turnIndex,
+		intentClass: 'frontend-edit',
+		toolCalls: [toolCall(`f${turnIndex}`, 'write_file', {path: 'ui/x.tsx'})],
+	});
+
+test('announce: fires once on first in-scope turn, injects body + ruleId', async t => {
+	let innerdaemonCalled = false;
+	const engine = new SteeringEngine({
+		rules: [announceRule],
+		modelId: MIMO,
+		criterionChecker: neverMet,
+		innerdaemon: (async () => {
+			innerdaemonCalled = true;
+			return {action: 'noop', reason: ''};
+		}) as InnerDaemonInvoker,
+	});
+	const action = await engine.evaluate([frontendFact(0)]);
+	t.deepEqual(action, {
+		type: 'inject',
+		message: 'Reuse ksui. Use theme tokens.',
+		urgency: 'light',
+		ruleId: 'frontend-prefs',
+	});
+	t.false(innerdaemonCalled, 'announce must not call InnerDaemon (fixed body)');
+});
+
+test('announce: dormant on later in-scope turns — never re-fires, never stops', async t => {
+	const engine = engineWith([announceRule], {action: 'noop', reason: ''});
+	const first = await engine.evaluate([frontendFact(0)]);
+	t.is(first?.type, 'inject', 'first in-scope turn announces');
+	// Second in-scope turn: dormant (null), NOT a stop-escalation.
+	const second = await engine.evaluate([frontendFact(0), frontendFact(1)]);
+	t.is(second, null, 'second turn is dormant, not a stop');
+	const third = await engine.evaluate([
+		frontendFact(0),
+		frontendFact(1),
+		frontendFact(2),
+	]);
+	t.is(third, null, 'stays dormant — an announce never stop-escalates');
+});
+
+test('announce: does not fire when the scenario is not in scope', async t => {
+	const engine = engineWith([announceRule], {action: 'noop', reason: ''});
+	// A worktree turn — different intent; the frontend announce must stay quiet.
+	const action = await engine.evaluate([worktreeFact(0)]);
+	t.is(action, null);
 });
 
 test('evaluate: criterion already met → no candidate (false alarm)', async t => {

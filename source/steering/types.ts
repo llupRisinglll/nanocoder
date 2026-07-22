@@ -30,6 +30,20 @@ export type IntentClass =
 	| 'reproduce'
 	| 'frontend-edit'
 	| 'git-history'
+	// Scenario-announce intents (AGENTS.md → on-demand steering migration).
+	| 'gitopolis'
+	| 'commit'
+	| 'pr-create'
+	| 'prod-ops'
+	| 'ci'
+	| 'branch-release'
+	| 'migration-sql'
+	| 'timezone-date'
+	| 'pluginlib'
+	| 'playwright-ui'
+	| 'issue-create'
+	| 'security-sensitive'
+	| 'verify'
 	| 'unknown';
 
 /**
@@ -199,7 +213,7 @@ export type SuccessCriterion =
 	| 'none';
 
 /** Whether a rule acts deterministically or delegates judgment to InnerDaemon. */
-export type SteeringMode = 'detector-only' | 'innerdaemon';
+export type SteeringMode = 'detector-only' | 'innerdaemon' | 'announce';
 
 /**
  * A steering rule, parsed from `.nanocoder/steering/*.steer.md` frontmatter.
@@ -222,6 +236,16 @@ export interface SteeringRule {
 	cooldownTurns?: number;
 	/** InnerDaemon domain context (the migrated dense prose). */
 	body?: string;
+	/**
+	 * `announce`-mode only: the name of a sibling slash-command skill
+	 * (`.nanocoder/commands/<name>.md`) whose body is loaded (frontmatter
+	 * stripped) at parse time and used as the announce message. Lets a scenario
+	 * inject a skill's own guidance on-demand — the skill stays the single
+	 * source of truth — instead of duplicating it in `body`. Mutually exclusive
+	 * with a literal `body`; when set, the loader has already inlined the skill
+	 * body into `body`.
+	 */
+	injectSkill?: string;
 	/** Where the rule was loaded from (for diagnostics). */
 	source?: string;
 }
@@ -252,13 +276,21 @@ export type SteeringUrgency = 'light' | 'firm';
  */
 export type SteeringAction =
 	| {type: 'noop'; reason: string}
-	| {type: 'inject'; message: string; urgency?: SteeringUrgency}
+	| {
+			type: 'inject';
+			message: string;
+			urgency?: SteeringUrgency;
+			/** Steering rule that produced this action, for the trace header. */
+			ruleId?: string;
+	  }
 	| {
 			type: 'block';
 			/** Tool call ids to cancel (paired with cancellation results). */
 			toolCallIds?: string[];
 			message: string;
 			urgency?: SteeringUrgency;
+			/** Steering rule that produced this action, for the trace header. */
+			ruleId?: string;
 	  }
 	| {type: 'stop'; reason: string};
 

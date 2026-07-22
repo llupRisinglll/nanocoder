@@ -1131,6 +1131,7 @@ export const processAssistantResponse = async (
 									key={generateKey('steering-block')}
 									message={action.message}
 									urgency={action.urgency ?? 'light'}
+									ruleId={action.ruleId}
 								/>
 							),
 						};
@@ -1142,6 +1143,7 @@ export const processAssistantResponse = async (
 								key={generateKey('steering-inject')}
 								message={action.message}
 								urgency={action.urgency ?? 'light'}
+								ruleId={action.ruleId}
 							/>,
 						);
 					}
