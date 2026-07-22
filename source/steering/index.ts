@@ -75,15 +75,25 @@ import type {DevelopmentMode, LLMClient} from '@/types/core';
  * InnerDaemon escalates. Genuinely destructive commands stay gated
  * independently of mode by the tool validators (see execute-bash's
  * dangerous-pattern validator).
+ *
+ * The optional `modelResolver` supplies InnerDaemon's configured model. A
+ * non-empty return overrides the subagent's `model: inherit` frontmatter so
+ * InnerDaemon can run on a fast, thinking-off model independent of the (often
+ * heavy-thinking) session model; a null/empty return preserves the default
+ * inherit behavior exactly (see docs/innerdaemon-steering-findings.md #10).
  */
 export function createInnerDaemonExecutor(
 	toolManager: ToolManager,
 	client: LLMClient,
 	modeResolver?: () => DevelopmentMode,
+	modelResolver?: () => string | null | undefined,
 ): SubagentExecutor {
 	const executor = new SubagentExecutor(toolManager, client);
 	if (modeResolver) {
 		executor.setModeResolver(modeResolver);
+	}
+	if (modelResolver) {
+		executor.setModelResolver(modelResolver);
 	}
 	return executor;
 }

@@ -7,6 +7,7 @@ import AssistantReasoning from '@/components/assistant-reasoning';
 import UserMessage from '@/components/user-message';
 import {getAppConfig} from '@/config/index';
 import {
+	getInnerDaemonModel,
 	getSteeringEnabled,
 	getSteeringVerbose,
 	subscribeSteeringPrefs,
@@ -308,6 +309,14 @@ export function useChatHandler({
 		getSteeringVerbose,
 		getSteeringVerbose,
 	);
+	// InnerDaemon's configured model (null = inherit the session model, the
+	// default). A change notifies via subscribeSteeringPrefs; folding it into the
+	// engine memo below re-binds the executor with a fresh model resolver.
+	const innerDaemonModelPref = React.useSyncExternalStore(
+		subscribeSteeringPrefs,
+		getInnerDaemonModel,
+		getInnerDaemonModel,
+	);
 	const steeringEngine = React.useMemo<SteeringEngine | null>(() => {
 		// Disabled → engine is never built or run (the loop treats null as "skip
 		// evaluation"): no InnerDaemon subagent calls, no blocks/nudges.
@@ -341,10 +350,24 @@ export function useChatHandler({
 			developmentModeRef
 				? () => developmentModeRef.current ?? 'normal'
 				: undefined,
+			// Live model resolver: read the InnerDaemon-model preference on every
+			// run. null (default) → undefined → inherit the session model exactly
+			// as before; a set value overrides it (see SubagentExecutor).
+			() => getInnerDaemonModel() ?? undefined,
 		);
 		engine.bindExecutor(executor);
 		innerdaemonBoundRef.current = true;
 	}, [client, toolManager, developmentModeRef]);
+
+	// A runtime change to the InnerDaemon model (Settings) must re-bind the
+	// executor so its model resolver is re-applied. The resolver reads the pref
+	// live, but forcing a re-bind keeps the wiring explicit and matches the
+	// enabled/verbose reactive pattern. Skips the initial mount (nothing bound
+	// yet) — ensureInnerdaemonBound binds lazily on first evaluation.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: innerDaemonModelPref is the trigger; the ref reset is the whole effect.
+	React.useEffect(() => {
+		innerdaemonBoundRef.current = false;
+	}, [innerDaemonModelPref]);
 
 	// Keep the engine's model id in sync with the active model (the memo above
 	// recreates the whole engine on model change, but this covers the case where

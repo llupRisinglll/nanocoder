@@ -337,3 +337,26 @@ export function updateSteeringVerbose(value: boolean): void {
 	savePreferences(preferences);
 	emitSteeringPrefsChanged();
 }
+
+/**
+ * The model the InnerDaemon steering subagent runs on. null (default) = inherit
+ * the main agent's current session model — today's `model: inherit` behavior.
+ * A non-null value overrides it with a specific model id (on the current
+ * provider). Returns null when unset so callers get an explicit "inherit".
+ */
+export function getInnerDaemonModel(): string | null {
+	const preferences = loadPreferences();
+	return preferences.innerDaemonModel ?? null;
+}
+
+/**
+ * Set (or clear) the InnerDaemon model and notify subscribers so the steering
+ * executor re-binds with the new model resolver. Pass null to restore the
+ * default (inherit the main agent model).
+ */
+export function updateInnerDaemonModel(value: string | null): void {
+	const preferences = loadPreferences();
+	preferences.innerDaemonModel = value;
+	savePreferences(preferences);
+	emitSteeringPrefsChanged();
+}

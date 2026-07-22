@@ -5,6 +5,7 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {StyledTitle} from '@/components/ui/styled-title';
 import {
 	getAlternateScreen,
+	getInnerDaemonModel,
 	getNanocoderShape,
 	getNotificationsPreference,
 	getPasteThreshold,
@@ -27,6 +28,7 @@ import type {
 } from './settings-selector';
 import {
 	SettingsDisplayPanel,
+	SettingsInnerDaemonModelPanel,
 	SettingsNanocoderShapePanel,
 	SettingsNotificationsPanel,
 	SettingsPasteThresholdPanel,
@@ -182,6 +184,13 @@ function buildRowsForTab(
 					value: getSteeringVerbose(),
 					onToggle: () => updateSteeringVerbose(!getSteeringVerbose()),
 				},
+				{
+					kind: 'managed',
+					id: 'innerdaemon-model',
+					label: 'InnerDaemon Model',
+					value: getInnerDaemonModel() ?? 'default (main agent)',
+					panel: 'innerdaemon-model',
+				},
 			];
 	}
 }
@@ -282,6 +291,10 @@ function renderManagedPanel(
 			return <SettingsPrivacyPanel onBack={onBack} onCancel={onBack} />;
 		case 'status-line':
 			return <SettingsStatusLinePanel onBack={onBack} onCancel={onBack} />;
+		case 'innerdaemon-model':
+			return (
+				<SettingsInnerDaemonModelPanel onBack={onBack} onCancel={onBack} />
+			);
 	}
 }
 

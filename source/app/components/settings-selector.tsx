@@ -6,9 +6,11 @@ import {type ReactNode, useMemo, useState} from 'react';
 import {StyledSelectInput} from '@/components/ui/styled-select-input';
 import type {TitleShape} from '@/components/ui/styled-title';
 import {TitledBoxWithPreferences} from '@/components/ui/titled-box';
+import {loadAllProviderConfigs} from '@/config/mcp-config-loader';
 import {
 	getCompactDiffMaxLines,
 	getCompactToolDisplay,
+	getInnerDaemonModel,
 	getNanocoderShape,
 	getNotificationsPreference,
 	getPasteThreshold,
@@ -19,6 +21,7 @@ import {
 	savePreferences,
 	updateCompactDiffMaxLines,
 	updateCompactToolDisplay,
+	updateInnerDaemonModel,
 	updateNanocoderShape,
 	updateNotificationsPreference,
 	updatePasteThreshold,
@@ -51,7 +54,8 @@ export type ManagedSettingsPanel =
 	| 'notifications'
 	| 'display-settings'
 	| 'privacy'
-	| 'status-line';
+	| 'status-line'
+	| 'innerdaemon-model';
 
 export interface SettingsSelectorProps {
 	onCancel: () => void;
@@ -984,6 +988,120 @@ export function SettingsPrivacyPanel({
 			<Box marginTop={1}>
 				<Text color={colors.secondary}>Enter/Esc</Text>
 			</Box>
+		</TitledBoxWithPreferences>
+	);
+}
+
+// InnerDaemon model settings panel.
+//
+// Sentinel for "inherit the main agent model" (the default → preference null).
+// SelectInput values are strings, so we can't use null directly.
+const INNERDAEMON_INHERIT = '__inherit__';
+
+export function SettingsInnerDaemonModelPanel({
+	onBack,
+	onCancel,
+}: {
+	onBack: () => void;
+	onCancel: () => void;
+}) {
+	const {boxWidth, isNarrow} = useResponsiveTerminal();
+	const {colors} = useTheme();
+
+	const currentModel = getInnerDaemonModel(); // null = inherit (default)
+
+	useInput((_, key) => {
+		if (key.escape) {
+			onCancel();
+		}
+		if (key.shift && key.tab) {
+			onBack();
+		}
+	});
+
+	// Offer models from the current provider (the one the main agent runs on),
+	// since InnerDaemon inherits the parent provider and only switches the
+	// model — a model from another provider would not resolve at runtime. Fall
+	// back to every configured model, provider-labeled, if the current provider
+	// can't be determined.
+	const items = useMemo(() => {
+		const providers = loadAllProviderConfigs();
+		const activeProvider = loadPreferences().lastProvider;
+		const match = activeProvider
+			? providers.find(p => p.name === activeProvider)
+			: undefined;
+
+		const modelEntries: {label: string; value: string}[] = match
+			? (match.models ?? []).map(m => ({label: m, value: m}))
+			: providers.flatMap(p =>
+					(p.models ?? []).map(m => ({
+						label: `${m} (${p.name})`,
+						value: m,
+					})),
+				);
+
+		const withMarker = ({label, value}: {label: string; value: string}) => ({
+			label: value === currentModel ? `${label} (current)` : label,
+			value,
+		});
+
+		return [
+			{
+				label:
+					currentModel === null
+						? 'Default: main agent model (current)'
+						: 'Default: main agent model',
+				value: INNERDAEMON_INHERIT,
+			},
+			...modelEntries.map(withMarker),
+		];
+	}, [currentModel]);
+
+	const initialIndex = useMemo(() => {
+		if (currentModel === null) return 0;
+		const idx = items.findIndex(item => item.value === currentModel);
+		return idx >= 0 ? idx : 0;
+	}, [items, currentModel]);
+
+	const handleSelect = (item: {label: string; value: string}) => {
+		updateInnerDaemonModel(
+			item.value === INNERDAEMON_INHERIT ? null : item.value,
+		);
+		onBack();
+	};
+
+	const title = isNarrow ? 'InnerDaemon Model' : 'InnerDaemon Steering Model';
+
+	return (
+		<TitledBoxWithPreferences
+			title={title}
+			width={isNarrow ? '100%' : boxWidth}
+			borderColor={colors.primary}
+			paddingX={2}
+			paddingY={1}
+			flexDirection="column"
+			marginBottom={1}
+		>
+			{!isNarrow && (
+				<Box marginBottom={1}>
+					<Text color={colors.secondary}>
+						Model the InnerDaemon steering subagent runs on. Default inherits
+						the main agent model; pick a fast, thinking-off model so a steering
+						nudge doesn't stall on a heavy-thinking model. Enter to apply,
+						Shift+Tab back, Esc to exit.
+					</Text>
+				</Box>
+			)}
+			<StyledSelectInput
+				items={items}
+				initialIndex={initialIndex}
+				onSelect={handleSelect}
+			/>
+			{isNarrow && (
+				<Box marginTop={0}>
+					<Text color={colors.secondary}>Enter/Shift+Tab/Esc</Text>
+				</Box>
+			)}
 		</TitledBoxWithPreferences>
 	);
 }

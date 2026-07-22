@@ -452,4 +452,14 @@ export interface UserPreferences {
 	 * the transcript, even on a noop turn, so it's visibly alive.
 	 */
 	steeringVerbose?: boolean;
+	/**
+	 * Model the InnerDaemon steering subagent runs on. null/undefined (default):
+	 * inherit the main agent's current session model — i.e. today's `model:
+	 * inherit` behavior, preserved exactly. A non-null value (a model id on the
+	 * current provider) overrides that, letting the user point InnerDaemon at a
+	 * fast, thinking-off model so a steering nudge doesn't stall the main loop on
+	 * a heavy-thinking session model (see docs/innerdaemon-steering-findings.md
+	 * finding #10).
+	 */
+	innerDaemonModel?: string | null;
 }
