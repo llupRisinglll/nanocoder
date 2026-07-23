@@ -674,34 +674,36 @@ export function createCriterionChecker(
 			case 'worktreeDirExists': {
 				const cwd = fact.cwd ?? getCwd();
 				if (cwd.includes('/worktrees/')) return true;
-				// Stateful check: extract any `.claude/worktrees/<name>` reference
-				// from this turn's tool calls/results and verify the worktree exists
-				// AND is populated on disk. Being stateful (not just this turn's
-				// bash output) is what keeps a create-only rule DORMANT once the
-				// worktree exists — otherwise the budget climbs during later
-				// reproduce/TDD/fix turns that merely reference the worktree path
-				// (the false-positive `block` observed in the Hilinga sim). We
-				// require a NON-EMPTY dir so a bare `mkdir` during a hand-roll (the
-				// failure mode this rule targets) is not mistaken for a real
-				// worktree.
-				const blob = `${JSON.stringify(fact.toolCalls ?? [])} ${fact.toolResults
-					.map(r => r.content)
-					.join(' ')}`;
-				const match = blob.match(/\.claude\/worktrees\/([A-Za-z0-9._-]+)/);
-				if (match) {
+				// Require the target worktree dir to exist AND be populated, with its
+				// name taken from this turn's tool CALLS (the commands the model
+				// issued) — never tool OUTPUT. Inferring success from output text let
+				// a `git worktree list` of a dozen OTHER worktrees, or the create
+				// command's own "worktree-create.sh ran" echo, report success: the
+				// false positive that kept supervision dormant while the model
+				// hand-rolled in the main repo. Attempting the command is not proof;
+				// the populated dir is. A NON-EMPTY dir also stops a bare `mkdir`
+				// hand-roll (the failure mode this rule targets) from counting.
+				const commands = JSON.stringify(fact.toolCalls ?? []);
+				const names = new Set<string>();
+				for (const m of commands.matchAll(
+					/worktrees[\\/]+([A-Za-z0-9._-]+)/g,
+				)) {
+					names.add(m[1]);
+				}
+				for (const m of commands.matchAll(
+					/worktree-create(?:\.sh|\.ts)?[\\"'\s,]+([A-Za-z0-9._-]+)/g,
+				)) {
+					names.add(m[1]);
+				}
+				for (const name of names) {
 					try {
-						const dir = join(getCwd(), '.claude', 'worktrees', match[1]);
+						const dir = join(getCwd(), '.claude', 'worktrees', name);
 						if (existsSync(dir) && readdirSync(dir).length > 0) return true;
 					} catch {
-						// fall through to the output-based heuristic
+						// keep checking the other candidate names
 					}
 				}
-				return fact.toolResults.some(
-					r =>
-						r.name === 'execute_bash' &&
-						!/error|not found|failed/i.test(r.content) &&
-						/worktree-create|worktree add/i.test(r.content),
-				);
+				return false;
 			}
 			case 'portListenerExists': {
 				// Stateful check: extract any `localhost:<port>` reference from this

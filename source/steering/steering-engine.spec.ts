@@ -432,15 +432,54 @@ test('evaluate: empty facts → null', async t => {
 
 // --- createCriterionChecker (observable predicates) -----------------------
 
-test('createCriterionChecker: worktreeDirExists via successful worktree-create output', async t => {
+test('createCriterionChecker: worktreeDirExists is NOT met by output text alone (no real dir)', async t => {
 	const {createCriterionChecker} = await import('./steering-engine');
 	const checker = createCriterionChecker(() => '/mnt/x/Hilinga');
+	// A create command that merely ran (its echo/output) is an ATTEMPT, not a
+	// populated worktree. Inferring success from this echo is the false positive
+	// that silenced supervision while the model hand-rolled in the main repo.
 	const fact = makeFact({
 		toolResults: [
 			toolResult('a', 'execute_bash', 'worktree-create.sh ran, plugins 10/10'),
 		],
 	});
-	t.true(checker('worktreeDirExists', fact));
+	t.false(checker('worktreeDirExists', fact));
+});
+
+test('createCriterionChecker: worktreeDirExists ignores a `git worktree list` of OTHER worktrees (sim regression)', async t => {
+	const {mkdtempSync, mkdirSync, writeFileSync} = await import('node:fs');
+	const {join} = await import('node:path');
+	const {tmpdir} = await import('node:os');
+	const {createCriterionChecker} = await import('./steering-engine');
+
+	// A dozen unrelated worktrees exist on disk (populated), exactly like the
+	// Hilinga workspace. The model runs `git worktree list` while hand-rolling in
+	// the main repo — its OUTPUT lists those real dirs. That must NOT satisfy the
+	// criterion: the task's own worktree was never created.
+	const root = mkdtempSync(join(tmpdir(), 'steer-wt-list-'));
+	mkdirSync(join(root, '.claude', 'worktrees', 'other-feature', 'kserp'), {
+		recursive: true,
+	});
+	writeFileSync(
+		join(root, '.claude', 'worktrees', 'other-feature', 'kserp', '.env'),
+		'x',
+	);
+	const checker = createCriterionChecker(() => root);
+
+	const listOtherWorktrees = makeFact({
+		toolCalls: [toolCall('a', 'execute_bash', {command: 'git worktree list'})],
+		toolResults: [
+			toolResult(
+				'a',
+				'execute_bash',
+				`${root}/.claude/worktrees/other-feature/kserp  abc1234 [feat/other-feature]`,
+			),
+		],
+	});
+	t.false(
+		checker('worktreeDirExists', listOtherWorktrees),
+		'listing OTHER worktrees is not proof this task created its own',
+	);
 });
 
 test('createCriterionChecker: worktreeDirExists is stateful — populated worktree stays met (rule dormant in later phases); bare mkdir does not', async t => {
