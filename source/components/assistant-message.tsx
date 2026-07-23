@@ -1,6 +1,7 @@
 import {Box, Text} from 'ink';
 import {memo, useMemo} from 'react';
 import {getTextboxBackground} from '@/config/themes';
+import {MAX_RENDERED_MESSAGE_CHARS} from '@/constants';
 import {useNonInteractiveRender} from '@/hooks/useNonInteractiveRender';
 import {useTerminalWidth} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
@@ -51,7 +52,15 @@ export default memo(function AssistantMessage({
 	// Inner text width: outer width minus left border (1) and padding (1 each side)
 	const textWidth = nonInteractive ? boxWidth : boxWidth - 3;
 
-	const displayMessage = message;
+	// Cap what we parse/wrap. A pathological message (resumed session, huge paste,
+	// or a runaway that slipped a stream cap) would otherwise re-parse and re-wrap
+	// megabytes on every Ink commit — the per-frame cost behind the CPU spin.
+	const displayMessage =
+		message.length > MAX_RENDERED_MESSAGE_CHARS
+			? `${message.slice(0, 2000)}\n\n… [truncated — ${Math.round(
+					message.length / 1000,
+				)} KB total, showing head + tail] …\n\n${message.slice(-2000)}`
+			: message;
 
 	// Render markdown into segments: text parts (rendered inside the bordered box)
 	// and code parts (rendered without a border so they can be copied cleanly).

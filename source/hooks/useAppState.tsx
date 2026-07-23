@@ -31,7 +31,6 @@ import {
 import type {UpdateInfo} from '@/types/index';
 import type {Tokenizer} from '@/types/tokenization.js';
 import type {ThemePreset} from '@/types/ui';
-import {BoundedMap} from '@/utils/bounded-map';
 import type {PendingQuestion} from '@/utils/question-queue';
 import type {CompactToolActivityMap} from '@/utils/tool-result-display';
 
@@ -59,14 +58,14 @@ export function useAppState(
 
 	const [client, setClient] = useState<LLMClient | null>(null);
 	const [messages, setMessages] = useState<Message[]>([]);
-	const [messageTokenCache, setMessageTokenCache] = useState<
-		BoundedMap<string, number>
-	>(
-		new BoundedMap({
-			maxSize: 1000,
-			// No TTL - cache is session-based and cleared on app restart
-		}),
-	);
+	// Token counts cached by message OBJECT identity (messages are immutable here;
+	// MessageBuilder reuses the objects). A ref-held WeakMap — NOT React state —
+	// so a lookup never builds a giant content-string key and never triggers a
+	// re-render. The old state cache churned getMessageTokens' identity on every
+	// miss, which drove useContextPercentage into a re-tokenize loop over the
+	// whole history (the ~42% idle-CPU spin on a huge message).
+	const messageTokenCacheRef = useRef(new WeakMap<Message, number>());
+	const tokenCacheModelRef = useRef('');
 	const [currentModel, setCurrentModel] = useState<string>('');
 	const [currentProvider, setCurrentProvider] =
 		useState<string>('openai-compatible');
@@ -260,36 +259,25 @@ export function useAppState(
 		};
 	}, [tokenizer]);
 
-	// Helper function for token calculation with caching
+	// Token calculation with an object-keyed WeakMap cache (see the ref above).
+	// Stable identity: depends only on tokenizer + model, so it no longer churns
+	// downstream effects.
 	const getMessageTokens = useCallback(
 		(message: Message) => {
-			const cacheKey = (message.content || '') + message.role + currentModel;
-
-			const cachedTokens = messageTokenCache.get(cacheKey);
-			if (cachedTokens !== undefined) {
-				return cachedTokens;
+			// Token counts are model-specific; reset the cache when the model changes.
+			if (tokenCacheModelRef.current !== currentModel) {
+				tokenCacheModelRef.current = currentModel;
+				messageTokenCacheRef.current = new WeakMap<Message, number>();
 			}
-
+			const cached = messageTokenCacheRef.current.get(message);
+			if (cached !== undefined) {
+				return cached;
+			}
 			const tokens = tokenizer.countTokens(message);
-			// Defer cache update to avoid "Cannot update a component while rendering" error
-			// This can happen when components call getMessageTokens during their render
-			queueMicrotask(() => {
-				setMessageTokenCache(prev => {
-					const newCache = new BoundedMap<string, number>({
-						maxSize: 1000,
-					});
-					// Copy existing entries
-					for (const [k, v] of prev.entries()) {
-						newCache.set(k, v);
-					}
-					// Add new entry
-					newCache.set(cacheKey, tokens);
-					return newCache;
-				});
-			});
+			messageTokenCacheRef.current.set(message, tokens);
 			return tokens;
 		},
-		[messageTokenCache, tokenizer, currentModel],
+		[tokenizer, currentModel],
 	);
 
 	// Tracks the messages array last written through updateMessages so we can
@@ -332,7 +320,6 @@ export function useAppState(
 		// State
 		client,
 		messages,
-		messageTokenCache,
 		currentModel,
 		currentProvider,
 		currentProviderConfig,
@@ -399,7 +386,6 @@ export function useAppState(
 		// Setters
 		setClient,
 		setMessages,
-		setMessageTokenCache,
 		setCurrentModel,
 		setCurrentProvider,
 		setCurrentProviderConfig,
