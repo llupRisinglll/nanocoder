@@ -88,8 +88,21 @@ function matchesWorktreeCreation(blob: string): boolean {
 }
 
 // Order matters: the FIRST matching rule wins, so more-specific classes must
-// come before more-general ones. `git-history` is checked before `tdd` etc.
+// come before more-general ones. `worktree-creation` is checked FIRST: a
+// hand-roll turn routinely mixes `git worktree add` with a `git log` probe, and
+// if `git-history` won that turn it would fall out of worktree-supervision's
+// scope — the exact gap that let a hand-rolled single-repo worktree slip past
+// supervision in the sim. Worktree tooling is the dominant intent when present.
 const RULES: readonly IntentRule[] = [
+	{
+		// Worktree creation — hand-rolled or scripted (`git worktree add`, `mkdir`
+		// of a worktrees path, worktree-create.sh, .gitopolis reads). A bare read
+		// over an existing worktree path is deliberately NOT creation (finding #5)
+		// — see `matchesWorktreeCreation`. Kept ahead of `git-history` so a turn
+		// that both adds a worktree and probes history stays worktree-creation.
+		intent: 'worktree-creation',
+		predicate: matchesWorktreeCreation,
+	},
 	{
 		// Mining git history (forbidden in simulations). Catches `git log/show/
 		// blame/reflog` whether run via execute_bash or a git_* tool.
@@ -125,15 +138,6 @@ const RULES: readonly IntentRule[] = [
 		// prod-ops, not misread as dev-server setup.
 		intent: 'prod-ops',
 		keywords: ['pm2 ', '/opt/kserp'],
-	},
-	{
-		// Worktree creation — hand-rolled or scripted. The /worktree hand-roll
-		// case from the simulation: `git worktree add`, `mkdir` of a worktrees
-		// path, worktree-create.sh, .gitopolis reads. A bare read over an
-		// existing worktree path is deliberately NOT creation (finding #5) —
-		// see `matchesWorktreeCreation`.
-		intent: 'worktree-creation',
-		predicate: matchesWorktreeCreation,
 	},
 	{
 		// Runtime/dev-server setup — the death-spiral class. dev server launch,

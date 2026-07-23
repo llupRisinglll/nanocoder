@@ -102,3 +102,20 @@ test('security-sensitive: strong security signals only', t => {
 test('over-fire guard: a plain UI edit is still frontend-edit, not a new intent', t => {
 	t.is(classifyIntent([edit('kplugin_counter/ui/x.tsx')]), 'frontend-edit');
 });
+
+test('worktree-creation is checked before git-history: a hand-roll turn that mixes `git worktree add` with a `git log` probe stays worktree-creation', t => {
+	// Regression: before reordering, `git-history` won a combined turn, taking it
+	// out of worktree-supervision's scope — the gap that let a hand-rolled
+	// single-repo worktree slip past supervision in the sim.
+	t.is(
+		classifyIntent([
+			bash('git worktree add ../kplugin_counter-255c4f0'),
+			bash('cd ../kplugin_counter-255c4f0 && git log --oneline -1'),
+		]),
+		'worktree-creation',
+	);
+	// A bare worktree add is still worktree-creation.
+	t.is(classifyIntent([bash('git worktree add ../wt')]), 'worktree-creation');
+	// A pure history probe (no worktree signal) still classifies git-history.
+	t.is(classifyIntent([bash('git log --oneline -20')]), 'git-history');
+});
