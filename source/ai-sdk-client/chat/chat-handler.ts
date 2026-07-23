@@ -6,7 +6,12 @@ import {
 	streamText,
 	ToolCallRepairError,
 } from 'ai';
-import {MAX_STREAM_STALL_RETRIES, MAX_TOOL_STEPS} from '@/constants';
+import {
+	MAX_STREAM_DURATION_MS,
+	MAX_STREAM_OUTPUT_CHARS,
+	MAX_STREAM_STALL_RETRIES,
+	MAX_TOOL_STEPS,
+} from '@/constants';
 import {formatForProvider, remapToolKeys} from '@/tools/tool-aliases';
 import type {
 	AIProviderConfig,
@@ -34,6 +39,7 @@ import {convertToModelMessages} from '../converters/message-converter.js';
 import {convertAISDKToolCalls} from '../converters/tool-converter.js';
 import {extractRootError} from '../error-handling/error-extractor.js';
 import {parseAPIError} from '../error-handling/error-parser.js';
+import {StreamRunawayError} from '../error-handling/stream-runaway-error.js';
 import {isStreamStallError} from '../error-handling/stream-stall-detector.js';
 import {isToolSupportError} from '../error-handling/tool-error-detector.js';
 import {
@@ -68,6 +74,22 @@ function withLooseToolSchemas(
 			{...toolDef, strict: false},
 		]),
 	) as Record<string, AISDKCoreTool>;
+}
+
+type StreamGuard = {
+	maxOutputChars: number;
+	maxDurationMs: number;
+	disabled: boolean;
+};
+
+/** Runaway-stream bounds: provider override, else the generous global defaults. */
+function resolveStreamGuard(providerConfig: AIProviderConfig): StreamGuard {
+	const cfg = providerConfig.streamGuard;
+	return {
+		maxOutputChars: cfg?.maxOutputChars ?? MAX_STREAM_OUTPUT_CHARS,
+		maxDurationMs: cfg?.maxDurationMs ?? MAX_STREAM_DURATION_MS,
+		disabled: cfg?.disabled ?? false,
+	};
 }
 
 export interface ChatHandlerParams {
@@ -339,12 +361,31 @@ export async function handleChat(
 				transformContext,
 			);
 
+			// Local abort controller chained to the caller's signal so the runaway
+			// guard (in the loop below) can physically close the stream. AI SDK v6
+			// abort is graceful — it emits an 'abort' chunk rather than throwing —
+			// so we own the teardown here.
+			const streamController = new AbortController();
+			if (signal) {
+				if (signal.aborted) {
+					streamController.abort(signal.reason);
+				} else {
+					signal.addEventListener(
+						'abort',
+						() => streamController.abort(signal.reason),
+						{once: true},
+					);
+				}
+			}
+			const streamStartMs = Date.now();
+			const streamGuard = resolveStreamGuard(providerConfig);
+
 			const result = streamText({
 				model,
 				...(systemParam ? {system: systemParam} : {}),
 				messages: modelMessages,
 				tools: stampedTools ?? aiTools,
-				abortSignal: signal,
+				abortSignal: streamController.signal,
 				maxRetries,
 				stopWhen: stepCountIs(MAX_TOOL_STEPS),
 				// Repair common weak-model tool-call mistakes before failing the turn.
@@ -435,6 +476,13 @@ export async function handleChat(
 
 			let lastYield = Date.now();
 			for await (const chunk of result.fullStream) {
+				// Belt-and-braces: a graceful-abort stream can keep yielding
+				// already-buffered chunks after the socket closed — stop on the
+				// caller's signal regardless of the SDK's own teardown timing.
+				if (signal?.aborted) {
+					if (flushTimer) clearTimeout(flushTimer);
+					throw new Error('Operation was cancelled');
+				}
 				switch (chunk.type) {
 					case 'reasoning-delta':
 						accumulatedReasoning += chunk.text;
@@ -468,7 +516,40 @@ export async function handleChat(
 						flushBuffer();
 						isReasoning = false;
 						break;
+
+					// AI SDK v6 abort is graceful: it emits this chunk and closes the
+					// stream WITHOUT throwing. Throw here so we skip the heavy
+					// post-processing tail (Promise.all + privacy rehydration over the
+					// whole buffer) and stop immediately.
+					case 'abort':
+						if (flushTimer) clearTimeout(flushTimer);
+						throw new Error('Operation was cancelled');
 				}
+
+				// Runaway-stream guard: an unbounded generation loop (repetition /
+				// endless reasoning) never triggers a provider-side stall, so cap it
+				// here. Aborting the local controller physically closes the stream.
+				if (!streamGuard.disabled) {
+					const totalChars =
+						accumulatedText.length + accumulatedReasoning.length;
+					if (totalChars > streamGuard.maxOutputChars) {
+						streamController.abort();
+						if (flushTimer) clearTimeout(flushTimer);
+						throw new StreamRunawayError(
+							'output-size',
+							`${Math.round(totalChars / 1000)}k chars`,
+						);
+					}
+					if (Date.now() - streamStartMs > streamGuard.maxDurationMs) {
+						streamController.abort();
+						if (flushTimer) clearTimeout(flushTimer);
+						throw new StreamRunawayError(
+							'duration',
+							`${Math.round((Date.now() - streamStartMs) / 1000)}s`,
+						);
+					}
+				}
+
 				// Periodically yield to the event loop so timers and Ink renders
 				// can run during long streaming responses (e.g. subagent execution)
 				const now = Date.now();
@@ -649,6 +730,32 @@ export async function handleChat(
 					provider: providerConfig.name,
 				});
 				throw new Error('Operation was cancelled');
+			}
+
+			// A cancellation surfaced from the stream loop (graceful-abort chunk or
+			// the caller's signal). Treat it like the AbortError above — surface, do
+			// not retry.
+			if (
+				error instanceof Error &&
+				error.message === 'Operation was cancelled'
+			) {
+				throw error;
+			}
+
+			// A runaway generation loop was stopped by the guard. It must NOT be
+			// retried (re-issuing re-runs the same loop) and the stall-retry regexes
+			// don't match it — surface immediately, before the retry branches.
+			if (error instanceof StreamRunawayError) {
+				logger.warn('Stream runaway stopped by guard', {
+					reason: error.reason,
+					detail: error.detail,
+					model: currentModel,
+					correlationId,
+					provider: providerConfig.name,
+				});
+				throw new Error(
+					`Model output exceeded the runaway limit (${error.detail}) and was stopped. Try a different model, or raise/disable the streamGuard for this provider.`,
+				);
 			}
 
 			// Check if error indicates tool support issue and we haven't retried

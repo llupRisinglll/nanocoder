@@ -434,3 +434,123 @@ test('handleChat surfaces the error after exhausting stall retries', async t => 
 	// 1 initial attempt + MAX_STREAM_STALL_RETRIES (2) retries = 3 doStream calls.
 	t.is(counter.n, 3, 'initial + 2 retries, then gives up');
 });
+
+// --- runaway-stream guard (P1) + immediate abort (P3) ------------------------
+
+const guardProviderConfig = (
+	streamGuard?: AIProviderConfig['streamGuard'],
+): AIProviderConfig => ({
+	name: 'TestProvider',
+	type: 'openai',
+	models: ['test-model'],
+	config: {baseURL: 'https://api.test.com'},
+	...(streamGuard ? {streamGuard} : {}),
+});
+
+const usage = {inputTokens: 1, outputTokens: 1, totalTokens: 2};
+
+test('handleChat stops a runaway stream (output-size) and does NOT retry', async t => {
+	let attempts = 0;
+	const model = {
+		specificationVersion: 'v3',
+		provider: 'test',
+		modelId: 'test-model',
+		doStream: async () => {
+			attempts++;
+			return {
+				stream: new ReadableStream({
+					start(c) {
+						c.enqueue({type: 'text-start', id: '0'});
+						// 500 chars total, guard is 200 → guard fires mid-stream.
+						for (let i = 0; i < 10; i++) {
+							c.enqueue({type: 'text-delta', id: '0', delta: 'x'.repeat(50)});
+						}
+						c.enqueue({type: 'text-end', id: '0'});
+						c.enqueue({type: 'finish', finishReason: 'stop', usage});
+						c.close();
+					},
+				}),
+			};
+		},
+	} as LanguageModel;
+
+	const err = await t.throwsAsync(
+		handleChat({
+			model,
+			currentModel: 'test-model',
+			providerConfig: guardProviderConfig({maxOutputChars: 200}),
+			messages: [{role: 'user', content: 'go'}],
+			tools: {},
+			callbacks: {},
+			maxRetries: 0,
+		}),
+	);
+	t.regex(err!.message, /runaway/i);
+	t.is(attempts, 1, 'a runaway must not be retried');
+});
+
+test('handleChat lets a normal (under-limit) stream complete — no false runaway', async t => {
+	const model = {
+		specificationVersion: 'v3',
+		provider: 'test',
+		modelId: 'test-model',
+		doStream: async () => ({
+			stream: new ReadableStream({
+				start(c) {
+					c.enqueue({type: 'text-start', id: '0'});
+					c.enqueue({type: 'text-delta', id: '0', delta: 'short answer'});
+					c.enqueue({type: 'text-end', id: '0'});
+					c.enqueue({type: 'finish', finishReason: 'stop', usage});
+					c.close();
+				},
+			}),
+		}),
+	} as LanguageModel;
+
+	const result = await handleChat({
+		model,
+		currentModel: 'test-model',
+		providerConfig: guardProviderConfig({maxOutputChars: 200}),
+		messages: [{role: 'user', content: 'go'}],
+		tools: {},
+		callbacks: {},
+		maxRetries: 0,
+	});
+	t.is(result.choices[0]?.message.content, 'short answer');
+});
+
+test('handleChat stops immediately when the signal aborts mid-stream', async t => {
+	const controller = new AbortController();
+	const model = {
+		specificationVersion: 'v3',
+		provider: 'test',
+		modelId: 'test-model',
+		doStream: async () => ({
+			stream: new ReadableStream({
+				start(c) {
+					c.enqueue({type: 'text-start', id: '0'});
+					c.enqueue({type: 'text-delta', id: '0', delta: 'partial'});
+					controller.abort(); // user hit Esc mid-stream
+					c.enqueue({type: 'text-delta', id: '0', delta: 'should-not-continue'});
+					c.enqueue({type: 'text-end', id: '0'});
+					c.enqueue({type: 'finish', finishReason: 'stop', usage});
+					c.close();
+				},
+			}),
+		}),
+	} as LanguageModel;
+
+	const err = await t.throwsAsync(
+		handleChat({
+			model,
+			currentModel: 'test-model',
+			providerConfig: guardProviderConfig(),
+			messages: [{role: 'user', content: 'go'}],
+			tools: {},
+			callbacks: {},
+			maxRetries: 0,
+			signal: controller.signal,
+		}),
+	);
+	t.is(err!.message, 'Operation was cancelled');
+});

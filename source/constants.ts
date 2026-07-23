@@ -34,6 +34,18 @@ export const MAX_FILE_READ_RETRIES = 3;
 // slow/free model going quiet past the provider's SSE inactivity window) before
 // the error surfaces. Keeps a single hiccup from dropping the whole turn.
 export const MAX_STREAM_STALL_RETRIES = 2;
+// Runaway-stream guards: a single model stream that exceeds either bound is a
+// runaway generation loop (repetition/endless reasoning), not a legitimate turn
+// — it's aborted and surfaced instead of hanging "Working" forever. Generous by
+// design (no real turn approaches ~250k tokens or 10 min); per-provider override
+// via `streamGuard` for slow local models.
+export const MAX_STREAM_OUTPUT_CHARS = 1_000_000;
+export const MAX_STREAM_DURATION_MS = 600_000;
+// Above this, a single assistant message is rendered as head + tail with a
+// truncation notice (markdown parsing/wrapping skipped). Bounds the per-commit
+// render cost of a pathological message (resumed session, paste, or a runaway
+// that slipped a cap) so Ink doesn't re-lay-out megabytes each frame.
+export const MAX_RENDERED_MESSAGE_CHARS = 50_000;
 
 // === SESSION NAMES ===
 export const MAX_SESSION_NAME_LENGTH = 100;

@@ -21,6 +21,16 @@ export interface AIProviderConfig {
 	socketTimeout?: number;
 	maxRetries?: number; // Maximum number of retries for failed requests (default: 2)
 	/**
+	 * Runaway-stream guard overrides. A single model stream exceeding either bound
+	 * is treated as a runaway generation loop, aborted, and surfaced. Raise
+	 * `maxDurationMs` for slow local models, or `disabled: true` to opt out.
+	 */
+	streamGuard?: {
+		maxOutputChars?: number;
+		maxDurationMs?: number;
+		disabled?: boolean;
+	};
+	/**
 	 * Optional model to try once after the primary model fails with a provider/API
 	 * error after its normal retry budget is exhausted. Must be a model exposed by
 	 * this same provider config.

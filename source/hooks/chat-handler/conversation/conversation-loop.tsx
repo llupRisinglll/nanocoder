@@ -446,6 +446,12 @@ export const processAssistantResponse = async (
 		modeOverrides,
 	);
 
+	// If Esc landed while the stream was resolving, stop now — never commit an
+	// aborted partial to history or start its tool calls.
+	if (controller.signal.aborted) {
+		throw new Error('Operation was cancelled');
+	}
+
 	if (!result || !result.choices || result.choices.length === 0) {
 		throw new Error('No response received from model');
 	}
@@ -1005,6 +1011,12 @@ export const processAssistantResponse = async (
 		};
 
 		const turnResults: ToolResult[] = [];
+
+		// An Esc that lands between stream end and tool dispatch must not start
+		// tools — bail before executing anything.
+		if (controller.signal.aborted) {
+			throw new Error('Operation was cancelled');
+		}
 
 		// 1) Auto-approved tools execute as a batch (parallelizes consecutive
 		//    read-only / agent runs).
