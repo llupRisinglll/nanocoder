@@ -11,7 +11,9 @@
 # change README status language and does not replace the fork-main dogfood
 # merge: every active rc/* branch stays labeled "Incubating on `rc/<feature>`"
 # in README.md and should also be tested on fork main via
-# `scripts/fork-flow.sh ship <branch>`.
+# `scripts/fork-flow.sh ship <branch>` or marked with
+# `scripts/fork-flow.sh dogfood <branch>` when fork main already carries an
+# Omnicode-adapted version of the same behavior.
 #
 # Branch map:
 #   - every local rc/*                -> rebase onto upstream/main

@@ -22,6 +22,15 @@
 #   dogfood <branch>            Mark the current branch tip as already tested
 #                              on fork main via dogfood/<branch>.
 #
+#   new-rc <name>                Create and push a clean rc/<name> branch
+#                              from upstream/main.
+#
+#   sync-main                    Merge upstream/main into fork main, push,
+#                              pull, and rebuild.
+#
+#   refresh                      Run sync-main, update-fork-branches.sh, then
+#                              status.
+#
 #   merged <pr-num>            Post-upstream-merge ritual: retag
 #                              pr-<num>-merged, merge upstream/main into fork
 #                              main (confirmed), pull + rebuild.
@@ -93,7 +102,7 @@ die() {
 }
 
 usage_line() {
-	echo "Usage: $0 [status|ship|upstream|dogfood|merged|depend|undepend|help] [args] [--dry-run] [--no-build] [--body-file <f>]"
+	echo "Usage: $0 [status|ship|upstream|dogfood|new-rc|sync-main|refresh|merged|depend|undepend|help] [args] [--dry-run] [--no-build] [--body-file <f>]"
 }
 
 # Usage error -> exit 2.
@@ -200,6 +209,43 @@ print_help() {
 			Example:  scripts/fork-flow.sh dogfood rc/statusline
 			EOF
 			;;
+		new-rc)
+			cat <<-'EOF'
+			fork-flow.sh new-rc <name> [--dry-run]
+
+			Creates a clean upstream-facing branch at rc/<name> from
+			upstream/main, then pushes it to origin. The branch is not checked
+			out, so the main worktree stays stable.
+
+			Examples:
+			  scripts/fork-flow.sh new-rc settings-tabs-v2
+			  scripts/fork-flow.sh new-rc rc/provider-timeouts
+			EOF
+			;;
+		sync-main)
+			cat <<-'EOF'
+			fork-flow.sh sync-main [--no-build] [--dry-run]
+
+			Fetches upstream, merges upstream/main into fork main in a temporary
+			worktree, pushes origin/main, then updates and rebuilds the main
+			checkout. This is the general "keep fork main current with upstream"
+			operation; use merged <pr-num> instead when an upstream PR from this
+			fork just merged and needs pr-<num>-merged tagging.
+			EOF
+			;;
+		refresh)
+			cat <<-'EOF'
+			fork-flow.sh refresh [--no-build] [--dry-run]
+
+			Full maintenance pass:
+			  1. sync-main
+			  2. scripts/update-fork-branches.sh
+			  3. status
+
+			With --no-build, sync-main skips the rebuild and
+			update-fork-branches.sh runs with --no-verify.
+			EOF
+			;;
 		merged)
 			cat <<-'EOF'
 			fork-flow.sh merged <pr-num> [--no-build] [--dry-run]
@@ -253,6 +299,9 @@ print_help() {
 			  ship <branch>                       branch -> fork main (PR + merge + rebuild)
 			  upstream <rc-branch> --body-file <f>  gated upstream PR + pr-<num> tag
 			  dogfood <branch>                    mark branch tip tested on fork main
+			  new-rc <name>                       create/push clean rc/<name> from upstream/main
+			  sync-main                           merge upstream/main into fork main
+			  refresh                             sync main, update branches, show status
 			  merged <pr-num>                     post-merge ritual (retag + sync + rebuild)
 			  depend <branch> <required-branch>   tag a branch dependency
 			  undepend <branch> <required-branch> remove a branch dependency tag
@@ -376,6 +425,17 @@ dogfood_reaches_branch() {
 	tag="$(dogfood_tag "$branch")"
 	git rev-parse --verify --quiet "$tag" >/dev/null &&
 		git merge-base --is-ancestor "$tag" "$branch" 2>/dev/null
+}
+
+rc_branch_name() {
+	local name="$1"
+	name="${name#refs/heads/}"
+	if [[ "$name" != rc/* ]]; then
+		name="rc/$name"
+	fi
+	[[ "$name" =~ ^rc/[A-Za-z0-9._-]+$ ]] ||
+		die_usage "invalid rc branch name '$name' (allowed: letters, numbers, dot, underscore, dash)."
+	echo "$name"
 }
 
 branch_exists() {
@@ -858,6 +918,114 @@ cmd_dogfood() {
 }
 
 # ---------------------------------------------------------------------------
+# new-rc <name>
+# ---------------------------------------------------------------------------
+
+cmd_new_rc() {
+	local branch
+	branch="$(rc_branch_name "$1")"
+	require_tooling
+
+	git fetch upstream --quiet
+	git fetch origin --quiet
+
+	branch_exists "$branch" && die "local branch '$branch' already exists."
+	git rev-parse --verify --quiet "origin/$branch" >/dev/null &&
+		die "remote branch 'origin/$branch' already exists."
+
+	confirm "Create '$branch' from upstream/main and push it to origin?" || {
+		echo "Aborted -- nothing changed."
+		return 0
+	}
+
+	run git branch "$branch" upstream/main
+	run git push -u origin "$branch"
+	echo "Created '$branch' from upstream/main."
+	echo "Next: work on the branch, add a changeset for user-facing changes, then run:"
+	echo "  scripts/fork-flow.sh ship $branch"
+	echo "  scripts/fork-flow.sh upstream $branch --body-file <body.md>"
+}
+
+# ---------------------------------------------------------------------------
+# sync-main
+# ---------------------------------------------------------------------------
+
+cmd_sync_main() {
+	require_tooling
+	require_clean_main
+
+	log "Fetching origin and upstream"
+	run git fetch origin --quiet
+	run git fetch upstream --quiet
+
+	if tag_reaches "upstream/main" "origin/main"; then
+		echo "    origin/main already contains upstream/main."
+		update_main_checkout
+		return 0
+	fi
+
+	confirm "Merge upstream/main into fork main, push, and rebuild?" || {
+		echo "Aborted -- nothing changed."
+		return 0
+	}
+
+	TEMP_WORKTREE="$(mktemp -d)"
+	if [ "$DRY_RUN" -eq 1 ]; then
+		echo "[dry-run] git worktree add --force $TEMP_WORKTREE main"
+		echo "[dry-run] (cd $TEMP_WORKTREE && git merge upstream/main)"
+		echo "[dry-run] git -C $TEMP_WORKTREE push origin main"
+	else
+		git worktree add --force "$TEMP_WORKTREE" main >/dev/null 2>&1 \
+			|| die "failed to create worktree for 'main'."
+		if ! git -C "$TEMP_WORKTREE" merge --no-edit upstream/main >/dev/null 2>&1; then
+			git -C "$TEMP_WORKTREE" merge --abort >/dev/null 2>&1 || true
+			die "merge conflict bringing upstream/main into main -- resolve manually in a worktree on 'main', do not let this script guess."
+		fi
+		git -C "$TEMP_WORKTREE" push origin main
+	fi
+	cleanup_temp_worktree
+
+	update_main_checkout
+}
+
+# ---------------------------------------------------------------------------
+# refresh
+# ---------------------------------------------------------------------------
+
+cmd_refresh() {
+	require_tooling
+
+	confirm "Run sync-main, update-fork-branches.sh, then status?" || {
+		echo "Aborted -- nothing changed."
+		return 0
+	}
+
+	if [ "$DRY_RUN" -eq 1 ]; then
+		if [ "$NO_BUILD" -eq 1 ]; then
+			echo "[dry-run] $0 sync-main --no-build"
+		else
+			echo "[dry-run] $0 sync-main"
+		fi
+		if [ "$NO_BUILD" -eq 1 ]; then
+			echo "[dry-run] scripts/update-fork-branches.sh --no-verify"
+		else
+			echo "[dry-run] scripts/update-fork-branches.sh"
+		fi
+		echo "[dry-run] $0 status"
+		return 0
+	fi
+
+	if [ "$NO_BUILD" -eq 1 ]; then
+		FORK_FLOW_YES=1 "$0" sync-main --no-build
+		scripts/update-fork-branches.sh --no-verify
+	else
+		FORK_FLOW_YES=1 "$0" sync-main
+		scripts/update-fork-branches.sh
+	fi
+	"$0" status
+}
+
+# ---------------------------------------------------------------------------
 # upstream <rc-branch>
 # ---------------------------------------------------------------------------
 
@@ -1082,26 +1250,7 @@ cmd_merged() {
 		echo "    Tagged '$new_tag' (kept '$old_tag') and pushed."
 	fi
 
-	log "Fetching upstream and merging upstream/main into fork main"
-	run git fetch upstream --quiet
-
-	TEMP_WORKTREE="$(mktemp -d)"
-	if [ "$DRY_RUN" -eq 1 ]; then
-		echo "[dry-run] git worktree add --force $TEMP_WORKTREE main"
-		echo "[dry-run] (cd $TEMP_WORKTREE && git merge upstream/main)"
-		echo "[dry-run] git -C $TEMP_WORKTREE push origin main"
-	else
-		git worktree add --force "$TEMP_WORKTREE" main >/dev/null 2>&1 \
-			|| die "failed to create worktree for 'main'."
-		if ! git -C "$TEMP_WORKTREE" merge --no-edit upstream/main >/dev/null 2>&1; then
-			git -C "$TEMP_WORKTREE" merge --abort >/dev/null 2>&1 || true
-			die "merge conflict bringing upstream/main into main -- resolve manually in a worktree on 'main', do not let this script guess."
-		fi
-		git -C "$TEMP_WORKTREE" push origin main
-	fi
-	cleanup_temp_worktree
-
-	update_main_checkout
+	FORK_FLOW_YES=1 cmd_sync_main
 
 	echo ""
 	echo "REMINDER: drop the README differences-table row for this feature"
@@ -1177,6 +1326,16 @@ case "$CMD" in
 	dogfood)
 		[ -n "$ARG1" ] || die_usage "dogfood requires <branch>."
 		cmd_dogfood "$ARG1"
+		;;
+	new-rc)
+		[ -n "$ARG1" ] || die_usage "new-rc requires <name>."
+		cmd_new_rc "$ARG1"
+		;;
+	sync-main)
+		cmd_sync_main
+		;;
+	refresh)
+		cmd_refresh
 		;;
 	merged)
 		[ -n "$ARG1" ] || die_usage "merged requires <pr-num>."
