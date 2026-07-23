@@ -767,7 +767,6 @@ test('arrow key navigation updates the selected completion', async t => {
 
 	stdin.write('/');
 	await wait();
-	stdin.write('\t');
 	await wait();
 
 	const beforeNav = lastFrame()!;
@@ -793,7 +792,6 @@ test('Enter selects the highlighted completion and populates the input', async t
 
 	stdin.write('/');
 	await wait();
-	stdin.write('\t');
 	await wait();
 
 	t.regex(lastFrame()!, /Available commands:/);
@@ -817,7 +815,6 @@ test('typing a space after a command hides completions so args submit', async t 
 
 	stdin.write('/test');
 	await wait();
-	stdin.write('\t');
 	await wait();
 
 	// While still typing the command name, completions are visible
@@ -844,7 +841,6 @@ test('completion menu dismissal/reset after selection or escape', async t => {
 
 	stdin.write('/');
 	await wait();
-	stdin.write('\t');
 	await wait();
 
 	t.regex(lastFrame()!, /Available commands:/);
@@ -862,7 +858,6 @@ test('completion menu dismissal/reset after selection or escape', async t => {
 
 	stdin.write('/');
 	await wait();
-	stdin.write('\t');
 	await wait();
 
 	t.regex(lastFrame()!, /Available commands:/);
@@ -888,7 +883,6 @@ test('UserInput renders completions text when typing /', async t => {
 	await new Promise(resolve => setTimeout(resolve, 50));
 	stdin.write('/');
 	await new Promise(resolve => setTimeout(resolve, 150));
-	stdin.write('\t');
 	await wait();
 
 	const output = lastFrame()!;
@@ -909,7 +903,6 @@ test('UserInput windows long slash completion lists', async t => {
 
 	stdin.write('/zz');
 	await wait();
-	stdin.write('\t');
 	await wait();
 
 	const firstFrame = lastFrame()!;
@@ -946,7 +939,6 @@ test('UserInput renders completions BEFORE the mode indicator (inside the input 
 	await new Promise(resolve => setTimeout(resolve, 50));
 	stdin.write('/');
 	await new Promise(resolve => setTimeout(resolve, 150));
-	stdin.write('\t');
 	await wait();
 
 	const output = lastFrame()!;
@@ -973,7 +965,6 @@ test('UserInput completions appear on a line above the mode indicator', async t 
 	await new Promise(resolve => setTimeout(resolve, 50));
 	stdin.write('/');
 	await new Promise(resolve => setTimeout(resolve, 150));
-	stdin.write('\t');
 	await wait();
 
 	const output = lastFrame()!;

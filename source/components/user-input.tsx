@@ -152,6 +152,9 @@ export default function UserInput({
 	const inputWrapWidth = colors.promptChar ? arrowBoxWidth - 8 : boxWidth - 3;
 	const [textInputKey, setTextInputKey] = useState(0);
 	const completionJustSelectedRef = useRef(false);
+	// Escape-dismissed guard: re-armed on the next input change so the auto-show
+	// effect doesn't immediately re-open a menu the user just dismissed.
+	const completionsDismissedRef = useRef(false);
 	// Store the full InputState draft when starting history navigation, so it can be restored
 	const savedDraftRef = useRef<InputState>({
 		displayValue: '',
@@ -356,6 +359,12 @@ export default function UserInput({
 		] as Completion[];
 	}, [input, isCommandMode, isFileAutocompleteMode, customCommands]);
 
+	// Re-arm auto-show on every input change, so an Escape-dismiss lasts only
+	// until the next keystroke.
+	useEffect(() => {
+		completionsDismissedRef.current = false;
+	}, [input]);
+
 	// Update UI state for command completions
 	useEffect(() => {
 		if (completionJustSelectedRef.current) {
@@ -364,8 +373,11 @@ export default function UserInput({
 		}
 		if (commandCompletions.length > 0) {
 			setCompletions(commandCompletions);
-			// Show the menu as soon as completions exist (typing `/`), not only on Tab.
-			setShowCompletions(true);
+			// Show the menu as soon as completions exist (typing `/`), not only on
+			// Tab — unless the user just dismissed it with Escape for this input.
+			if (!completionsDismissedRef.current) {
+				setShowCompletions(true);
+			}
 			setSelectedCompletionIndex(prev =>
 				prev >= commandCompletions.length
 					? commandCompletions.length - 1
@@ -524,6 +536,7 @@ export default function UserInput({
 		if (showCompletions) {
 			setShowCompletions(false);
 			setSelectedCompletionIndex(-1);
+			completionsDismissedRef.current = true;
 			return;
 		}
 		if (isFileAutocompleteMode) {
