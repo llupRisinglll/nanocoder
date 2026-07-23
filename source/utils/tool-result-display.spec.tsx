@@ -957,3 +957,46 @@ test('displayToolResult compact - unknown tool uses tool name', async t => {
 	t.regex(lastFrame()!, /custom_mcp_tool/);
 	unmount();
 });
+
+test('displayToolResult compact icon theme - long output keeps the TAIL with an earlier-lines hint', async t => {
+	const {addToChatQueue, queue} = createMockAddToChatQueue();
+	const toolCall = createMockToolCall('1', 'execute_bash', {command: 'seq 6'});
+	const result = createMockToolResult(
+		'1',
+		'execute_bash',
+		'line-one\nline-two\nline-three\nline-four\nline-five\nline-six',
+	);
+
+	await displayToolResult(toolCall, result, null, addToChatQueue, true, {
+		iconTheme: true,
+	});
+
+	t.is(queue.length, 1);
+	const {lastFrame, unmount} = renderWithTheme(queue[0] as React.ReactElement);
+	const output = lastFrame()!;
+	// Collapsed preview caps at 3 lines and must keep the tail, not the head.
+	t.regex(output, /line-six/);
+	t.regex(output, /line-four/);
+	t.notRegex(output, /line-one/);
+	// Hidden lines are announced ABOVE the tail with the shared ctrl+r toggle.
+	t.regex(output, /\+3 earlier lines \(ctrl\+r to expand\)/);
+	unmount();
+});
+
+test('displayToolResult compact icon theme - short output shows fully with no hint', async t => {
+	const {addToChatQueue, queue} = createMockAddToChatQueue();
+	const toolCall = createMockToolCall('1', 'execute_bash', {command: 'pwd'});
+	const result = createMockToolResult('1', 'execute_bash', 'one\ntwo');
+
+	await displayToolResult(toolCall, result, null, addToChatQueue, true, {
+		iconTheme: true,
+	});
+
+	t.is(queue.length, 1);
+	const {lastFrame, unmount} = renderWithTheme(queue[0] as React.ReactElement);
+	const output = lastFrame()!;
+	t.regex(output, /one/);
+	t.regex(output, /two/);
+	t.notRegex(output, /earlier line/);
+	unmount();
+});

@@ -1,4 +1,8 @@
-import {useResponsiveTerminal, useTerminalWidth} from './useTerminalWidth.js';
+import {
+	shouldClearOnInlineResize,
+	useResponsiveTerminal,
+	useTerminalWidth,
+} from './useTerminalWidth.js';
 import test from 'ava';
 import {render} from 'ink-testing-library';
 import React from 'react';
@@ -283,4 +287,31 @@ test('useTerminalWidth shares one resize listener across many consumers', t => {
 	t.is(afterUnmount, before);
 
 	process.stdout.columns = originalColumns;
+});
+
+// ============================================================================
+// shouldClearOnInlineResize (inline resize guard predicate)
+// ============================================================================
+
+test('shouldClearOnInlineResize wipes on any column shrink', t => {
+	t.true(shouldClearOnInlineResize(74, 44));
+	t.true(shouldClearOnInlineResize(80, 79));
+	// Shrink at pegged boxWidth (>=124 cols) still wipes: reflow happens
+	// regardless, and Ink guarantees a rewrite on shrink.
+	t.true(shouldClearOnInlineResize(140, 130));
+});
+
+test('shouldClearOnInlineResize wipes on growth only when boxWidth changes', t => {
+	// 44 -> 74: boxWidth 40 -> 70, rendered frame changes, safe to wipe.
+	t.true(shouldClearOnInlineResize(44, 74));
+	// 130 -> 140: boxWidth pegged at 120 both sides — Ink may not rewrite an
+	// identical frame, so wiping would blank the screen. Must NOT wipe.
+	t.false(shouldClearOnInlineResize(130, 140));
+});
+
+test('shouldClearOnInlineResize ignores no-ops and unknown widths', t => {
+	t.false(shouldClearOnInlineResize(74, 74));
+	t.false(shouldClearOnInlineResize(undefined, 74));
+	t.false(shouldClearOnInlineResize(74, undefined));
+	t.false(shouldClearOnInlineResize(0, 74));
 });

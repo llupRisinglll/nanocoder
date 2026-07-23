@@ -59,6 +59,17 @@ export class SubagentExecutor {
 	 * that don't supply a resolver (plain shell, tests).
 	 */
 	private modeResolver?: () => DevelopmentMode;
+	/**
+	 * Live source for a model override, read on every run. When set (the
+	 * steering layer wires it to the InnerDaemon-model preference), a non-empty
+	 * return value takes precedence over the subagent's own `model:` frontmatter
+	 * — including `model: inherit` — so InnerDaemon can run on a fast,
+	 * thinking-off model independent of the session model. When it returns
+	 * null/undefined/empty the executor falls back to the frontmatter model
+	 * (inherit → the parent's current model), preserving today's behavior
+	 * exactly. Only affects the executor instance it is set on (InnerDaemon).
+	 */
+	private modelResolver?: () => string | null | undefined;
 
 	constructor(
 		toolManager: ToolManager,
@@ -86,6 +97,29 @@ export class SubagentExecutor {
 	 */
 	setModeResolver(resolver: () => DevelopmentMode): void {
 		this.modeResolver = resolver;
+	}
+
+	/**
+	 * Provide a live getter for a model override. Read once per run in
+	 * `prepareClient`; a non-empty value overrides the subagent's frontmatter
+	 * model, a null/empty value falls back to it (inherit). See `modelResolver`.
+	 */
+	setModelResolver(resolver: () => string | null | undefined): void {
+		this.modelResolver = resolver;
+	}
+
+	/**
+	 * The model this run should use in place of the config's frontmatter model:
+	 * the live override if it returns a non-empty string, else undefined (fall
+	 * back to the frontmatter/inherit behavior). Trimmed so a stray blank never
+	 * counts as an override.
+	 */
+	private resolvedModelOverride(): string | undefined {
+		const override = this.modelResolver?.();
+		if (typeof override === 'string' && override.trim().length > 0) {
+			return override.trim();
+		}
+		return undefined;
 	}
 
 	/** The mode in effect right now: live resolver if set, else the snapshot. */
@@ -302,9 +336,16 @@ export class SubagentExecutor {
 				: undefined;
 		const parentProviderConfig = this.parentClient.getProviderConfig();
 		const targetProvider = config.provider ?? parentProviderConfig.name;
+		// A live override (InnerDaemon's configured model) takes precedence over
+		// the frontmatter `model:` — including `inherit`. When no override is set
+		// this is the frontmatter model verbatim, so the default path is
+		// byte-for-byte the previous behavior.
+		const override = this.resolvedModelOverride();
+		const effectiveModel =
+			override ?? (config.model === 'inherit' ? undefined : config.model);
 		const targetModel =
-			config.model && config.model !== 'inherit'
-				? config.model
+			effectiveModel && effectiveModel !== 'inherit'
+				? effectiveModel
 				: targetProvider === parentProviderConfig.name
 					? this.parentClient.getCurrentModel()
 					: undefined;
@@ -319,33 +360,35 @@ export class SubagentExecutor {
 		// Different provider — create a new client entirely
 		if (config.provider) {
 			const model =
-				config.model && config.model !== 'inherit' ? config.model : undefined;
+				effectiveModel && effectiveModel !== 'inherit'
+					? effectiveModel
+					: undefined;
 
 			const {client} = await createLLMClient(config.provider, model);
 			return {client, restoreParent: () => {}};
 		}
 
 		// Same provider, different model
-		if (config.model && config.model !== 'inherit') {
+		if (effectiveModel && effectiveModel !== 'inherit') {
 			// In concurrent mode, create a new client to avoid mutating the
 			// shared parent client (which would race with other agents)
 			if (concurrent) {
 				const {client} = await createLLMClient(
 					parentProviderConfig.name,
-					config.model,
+					effectiveModel,
 				);
 				return {client, restoreParent: () => {}};
 			}
 
 			const availableModels = await this.parentClient.getAvailableModels();
-			if (!availableModels.includes(config.model)) {
+			if (!availableModels.includes(effectiveModel)) {
 				throw new Error(
-					`Model '${config.model}' is not available. Configured models: ${availableModels.join(', ')}`,
+					`Model '${effectiveModel}' is not available. Configured models: ${availableModels.join(', ')}`,
 				);
 			}
 
 			const originalModel = this.parentClient.getCurrentModel();
-			this.parentClient.setModel(config.model);
+			this.parentClient.setModel(effectiveModel);
 			return {
 				client: this.parentClient,
 				restoreParent: () => this.parentClient.setModel(originalModel),

@@ -440,4 +440,26 @@ export interface UserPreferences {
 	alternateScreen?: boolean;
 	/** Max diff lines shown in compact-mode file results. 0 = unlimited. Default 20. */
 	compactDiffMaxLines?: number;
+	/**
+	 * Auto-steering (InnerDaemon) master switch. true (default): the steering
+	 * engine evaluates each turn and may nudge/block/stop. false: the engine is
+	 * never built or run — useful for A/B comparison against un-steered behavior.
+	 */
+	steeringEnabled?: boolean;
+	/**
+	 * Verbose "proof-of-life" trace for InnerDaemon. false (default): silent.
+	 * true: every turn's steering evaluation emits a single dim trace line into
+	 * the transcript, even on a noop turn, so it's visibly alive.
+	 */
+	steeringVerbose?: boolean;
+	/**
+	 * Model the InnerDaemon steering subagent runs on. null/undefined (default):
+	 * inherit the main agent's current session model — i.e. today's `model:
+	 * inherit` behavior, preserved exactly. A non-null value (a model id on the
+	 * current provider) overrides that, letting the user point InnerDaemon at a
+	 * fast, thinking-off model so a steering nudge doesn't stall the main loop on
+	 * a heavy-thinking session model (see docs/innerdaemon-steering-findings.md
+	 * finding #10).
+	 */
+	innerDaemonModel?: string | null;
 }

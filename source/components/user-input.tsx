@@ -136,12 +136,20 @@ export default function UserInput({
 	const inputState = useInputState();
 	const uiState = useUIStateContext();
 	const {boxWidth, isNarrow, actualWidth, truncate} = useResponsiveTerminal();
+	// boxWidth floors at 40, which exceeds the real width of terminals narrower
+	// than ~44 columns. Rows wider than the terminal hard-wrap in the terminal
+	// itself, which breaks Ink's newline-based erase accounting and leaves
+	// residue rows that composite over later frames (the garbled multi-line
+	// echo on submit). Cap the promptChar textbox at the true terminal width;
+	// at columns >= 44 this equals boxWidth exactly, so normal-width rendering
+	// is unchanged. Classic themes keep raw boxWidth untouched.
+	const arrowBoxWidth = Math.max(20, Math.min(boxWidth, actualWidth - 2));
 	// Must match the wrapWidth passed to TextInput below — both sides use it to
 	// decide whether Up/Down means line navigation or history.
 	// Themes with a promptChar render a rounded, inset box and keep the "❯ "
 	// prefix visible while typing: side margins (2) + rounded border (2) +
 	// paddingX (2) + prefix (2). Classic style: left border (1) + padding (2).
-	const inputWrapWidth = boxWidth - (colors.promptChar ? 8 : 3);
+	const inputWrapWidth = colors.promptChar ? arrowBoxWidth - 8 : boxWidth - 3;
 	const [textInputKey, setTextInputKey] = useState(0);
 	const completionJustSelectedRef = useRef(false);
 	// Store the full InputState draft when starting history navigation, so it can be restored
@@ -958,7 +966,7 @@ export default function UserInput({
 	//     (2) = boxWidth - 3.
 	const completionInteriorWidth = (colors as Colors & {promptChar?: string})
 		.promptChar
-		? boxWidth - 6
+		? arrowBoxWidth - 6
 		: boxWidth - 3;
 	const commandCompletionAvailableWidth = Math.max(20, completionInteriorWidth);
 	const commandNameColumnWidth = useMemo(() => {
@@ -1076,7 +1084,7 @@ export default function UserInput({
 				flexDirection="column"
 				marginTop={colors.promptChar ? 0 : 1}
 				backgroundColor={getTextboxBackground(colors)}
-				width={colors.promptChar ? boxWidth - 2 : boxWidth}
+				width={colors.promptChar ? arrowBoxWidth - 2 : boxWidth}
 				marginX={colors.promptChar ? 1 : 0}
 				paddingX={1}
 				paddingY={colors.promptChar ? 0 : 1}
@@ -1226,7 +1234,7 @@ export default function UserInput({
 					marginTop={-1}
 					marginX={1}
 					paddingRight={2}
-					width={boxWidth - 2}
+					width={arrowBoxWidth - 2}
 				>
 					<Text color={colors.info} bold>
 						{' '}

@@ -581,6 +581,30 @@ async function main(): Promise<void> {
 				ref: () => process.stdin.ref(),
 				unref: () => process.stdin.unref(),
 			}) as unknown as NodeJS.ReadStream;
+		} else if (process.stdout.isTTY && !nonInteractiveMode) {
+			// INLINE mode needs the same wipe-before-repaint guard as the alt
+			// screen, because a horizontal resize is even more destructive there:
+			// the terminal REFLOWS previously painted rows (tmux joins or wraps
+			// them), so Ink's newline-count erase bookkeeping no longer matches
+			// the physical screen and every repaint composites stale fragments
+			// over the live UI (garbled input box / user-message echo). Register
+			// BEFORE render() so this runs ahead of Ink's own resize handler.
+			//
+			// Unlike fullscreen, only wipe when Ink is guaranteed to rewrite the
+			// frame afterwards — see shouldClearOnInlineResize for the exact
+			// conditions (any shrink; growth only when it changes boxWidth).
+			const {shouldClearOnInlineResize} = await import(
+				'@/hooks/useTerminalWidth'
+			);
+			let lastColumns = process.stdout.columns;
+			process.stdout.on('resize', () => {
+				const previous = lastColumns;
+				const current = process.stdout.columns;
+				lastColumns = current;
+				if (shouldClearOnInlineResize(previous, current)) {
+					process.stdout.write('\x1B[2J\x1B[H');
+				}
+			});
 		}
 
 		const result = render(

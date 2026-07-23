@@ -133,6 +133,22 @@ export const MAX_MALFORMED_RETRIES = 2;
 // stop and surface an actionable error instead of looping.
 export const MAX_REPEATED_TOOL_CALLS = 3;
 
+// === AUTO-STEERING / INNERDAEMON ===
+// After this many InnerDaemon injections with no forward progress, escalate
+// `inject → stop` rather than nagging forever.
+export const DEFAULT_STEERING_MAX_FIRES = 3;
+// Don't re-fire the same rule for this many turns after it fires. Keeps
+// InnerDaemon from spinning up on every consecutive turn once a candidate matches.
+export const DEFAULT_STEERING_COOLDOWN_TURNS = 2;
+// How many recent TurnFacts to pass to InnerDaemon for context (keeps its prompt
+// bounded — it only needs the recent loop, not the whole conversation).
+export const INNERDAEMON_RECENT_TURNS = 8;
+// Hard ceiling on how many consecutive turns a conversation may spend in a
+// single intent class without meeting its success criterion before the detector
+// forces an InnerDaemon evaluation. Rule-specific budgets
+// (`watch.maxTurnsWithoutSuccess`) override this when set.
+export const DEFAULT_STEERING_BUDGET_TURNS = 6;
+
 // === MCP ===
 export const TIMEOUT_MCP_DEFAULT_MS = 30_000;
 

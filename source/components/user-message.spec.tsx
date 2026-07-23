@@ -408,3 +408,59 @@ code2
 	t.false(output!.includes('code1'));
 	t.false(output!.includes('code2'));
 });
+
+
+// ============================================================================
+// Narrow-terminal width cap (regression)
+// ============================================================================
+
+// Regression: boxWidth floors at 40 columns, so on terminals narrower than
+// ~44 columns the fixed-width arrow-mode echo painted rows WIDER than the
+// real terminal. Over-wide rows hard-wrap in the terminal itself, which
+// breaks Ink's newline-based erase accounting - every repaint under-erases
+// and composites residue rows into the transcript (the garbled multi-line
+// echo on submit). The arrow path must cap its box at the true terminal
+// width. serial: mutates process.stdout.columns.
+test.serial(
+	'UserMessage arrow mode caps rows to a narrow terminal width',
+	t => {
+		const original = process.stdout.columns;
+		Object.defineProperty(process.stdout, 'columns', {
+			value: 30,
+			configurable: true,
+		});
+		try {
+			const omnicodeTheme = {
+				currentTheme: 'omnicode' as const,
+				colors: themes.omnicode.colors,
+				setCurrentTheme: () => {},
+			};
+			const {lastFrame, unmount} = render(
+				<ThemeContext.Provider value={omnicodeTheme}>
+					<UserMessage
+						message={
+							'read package.json, run ls -la, run git status,\n  then summarize'
+						}
+					/>
+				</ThemeContext.Provider>,
+			);
+			const frame = lastFrame() ?? '';
+			unmount();
+			const plain = frame.replace(/\u001B\[[0-9;]*m/g, '');
+			for (const line of plain.split('\n')) {
+				t.true(
+					line.length <= 30,
+					`row wider than 30-col terminal (${line.length}): ${JSON.stringify(line)}`,
+				);
+			}
+			// Content must survive the narrower wrap
+			t.regex(plain, /then summarize/);
+			t.regex(plain, /read package\.json,/);
+		} finally {
+			Object.defineProperty(process.stdout, 'columns', {
+				value: original,
+				configurable: true,
+			});
+		}
+	},
+);

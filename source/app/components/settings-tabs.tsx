@@ -5,12 +5,17 @@ import {useEffect, useMemo, useRef, useState} from 'react';
 import {StyledTitle} from '@/components/ui/styled-title';
 import {
 	getAlternateScreen,
+	getInnerDaemonModel,
 	getNanocoderShape,
 	getNotificationsPreference,
 	getPasteThreshold,
 	getPrivacyPreference,
+	getSteeringEnabled,
+	getSteeringVerbose,
 	loadPreferences,
 	updateAlternateScreen,
+	updateSteeringEnabled,
+	updateSteeringVerbose,
 } from '@/config/preferences';
 import {useResponsiveTerminal} from '@/hooks/useTerminalWidth';
 import {useTheme} from '@/hooks/useTheme';
@@ -23,6 +28,7 @@ import type {
 } from './settings-selector';
 import {
 	SettingsDisplayPanel,
+	SettingsInnerDaemonModelPanel,
 	SettingsNanocoderShapePanel,
 	SettingsNotificationsPanel,
 	SettingsPasteThresholdPanel,
@@ -164,6 +170,27 @@ function buildRowsForTab(
 					value: getPrivacyPreference() ? 'on' : 'off',
 					panel: 'privacy',
 				},
+				{
+					kind: 'boolean',
+					id: 'innerdaemon',
+					label: 'InnerDaemon',
+					value: getSteeringEnabled(),
+					onToggle: () => updateSteeringEnabled(!getSteeringEnabled()),
+				},
+				{
+					kind: 'boolean',
+					id: 'innerdaemon-verbose',
+					label: 'InnerDaemon Verbose',
+					value: getSteeringVerbose(),
+					onToggle: () => updateSteeringVerbose(!getSteeringVerbose()),
+				},
+				{
+					kind: 'managed',
+					id: 'innerdaemon-model',
+					label: 'InnerDaemon Model',
+					value: getInnerDaemonModel() ?? 'default (main agent)',
+					panel: 'innerdaemon-model',
+				},
 			];
 	}
 }
@@ -264,6 +291,10 @@ function renderManagedPanel(
 			return <SettingsPrivacyPanel onBack={onBack} onCancel={onBack} />;
 		case 'status-line':
 			return <SettingsStatusLinePanel onBack={onBack} onCancel={onBack} />;
+		case 'innerdaemon-model':
+			return (
+				<SettingsInnerDaemonModelPanel onBack={onBack} onCancel={onBack} />
+			);
 	}
 }
 

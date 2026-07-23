@@ -48,6 +48,7 @@ export async function parseSubagentMarkdown(
 		contextWindow: frontmatter.contextWindow,
 		tools: frontmatter.tools,
 		disallowedTools: frontmatter.disallowedTools,
+		internal: frontmatter.internal,
 		systemPrompt,
 	};
 
@@ -124,6 +125,13 @@ export function validateFrontmatter(
 				error: 'disallowedTools must be an array of strings',
 			};
 		}
+	}
+
+	if (
+		frontmatter.internal !== undefined &&
+		typeof frontmatter.internal !== 'boolean'
+	) {
+		return {valid: false, error: 'internal must be a boolean'};
 	}
 
 	return {valid: true};

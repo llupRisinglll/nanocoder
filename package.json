@@ -96,6 +96,7 @@
 		"ink-select-input": "^6.2.0",
 		"ink-spinner": "^5.0.0",
 		"ink-tab": "^5.2.0",
+		"jsonrepair": "^3.15.0",
 		"llama-tokenizer-js": "^1.2.2",
 		"pino": "^10.1.0",
 		"pino-pretty": "^13.1.3",

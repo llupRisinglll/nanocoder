@@ -1,0 +1,783 @@
+import test from 'ava';
+import type {ToolCall, ToolResult} from '@/types/core';
+import {SteeringEngine, type InnerDaemonInvoker} from './steering-engine';
+import type {InnerDaemonResponse, SteeringRule, TurnFact} from './types';
+
+console.log('\nsteering/steering-engine.spec.ts');
+
+// --- fixtures --------------------------------------------------------------
+
+const toolCall = (
+	id: string,
+	name: string,
+	args: Record<string, unknown> = {},
+): ToolCall => ({id, function: {name, arguments: args}});
+
+const toolResult = (
+	toolCallId: string,
+	name: string,
+	content = 'ok',
+): ToolResult => ({tool_call_id: toolCallId, role: 'tool', name, content});
+
+const makeFact = (overrides: Partial<TurnFact> = {}): TurnFact => ({
+	turnIndex: 0,
+	wallClockMs: 0,
+	toolCalls: [],
+	toolResults: [],
+	intentClass: 'unknown',
+	hadError: false,
+	...overrides,
+});
+
+const worktreeFact = (turnIndex: number): TurnFact =>
+	makeFact({
+		turnIndex,
+		intentClass: 'worktree-creation',
+		toolCalls: [
+			toolCall(`a${turnIndex}`, 'execute_bash', {
+				command: 'git worktree add .claude/worktrees/x',
+			}),
+		],
+		toolResults: [toolResult(`a${turnIndex}`, 'execute_bash', 'created')],
+	});
+
+const MIMO = 'mimo-v2.5';
+
+const worktreeRule: SteeringRule = {
+	id: 'worktree-supervision',
+	mode: 'innerdaemon',
+	maxFires: 3,
+	cooldownTurns: 1,
+	condition: {
+		modelIn: ['mimo-v2.5'],
+		intentClass: 'worktree-creation',
+	},
+	watch: {successCriterion: 'worktreeDirExists', maxTurnsWithoutSuccess: 2},
+	body: 'Use the scripts. Do not hand-roll.',
+};
+
+// checker that always says the criterion is NOT met (worktree never created)
+const neverMet = () => false;
+// checker that always says the criterion IS met
+const alwaysMet = () => true;
+
+/** Build an engine with a mock InnerDaemon returning the given canned response. */
+const engineWith = (
+	rules: SteeringRule[],
+	innerdaemonResponse: InnerDaemonResponse,
+	criterion = neverMet,
+): SteeringEngine =>
+	new SteeringEngine({
+		rules,
+		modelId: MIMO,
+		criterionChecker: criterion,
+		innerdaemon: (async () => innerdaemonResponse) as InnerDaemonInvoker,
+	});
+
+// --- constraint violation (instant block, no InnerDaemon) -------------------
+
+test('evaluate: git log constraint → instant block, no InnerDaemon call', async t => {
+	let innerdaemonCalled = false;
+	const rule: SteeringRule = {
+		id: 'no-history',
+		mode: 'detector-only',
+		watch: {
+			alsoBlock: [
+				{
+					tool: 'execute_bash',
+					argMatches: ['git log'],
+					message: 'git history forbidden',
+				},
+			],
+		},
+	};
+	const engine = new SteeringEngine({
+		rules: [rule],
+		modelId: MIMO,
+		criterionChecker: neverMet,
+		innerdaemon: async () => {
+			innerdaemonCalled = true;
+			return {action: 'noop', reason: ''};
+		},
+	});
+	const facts = [
+		makeFact({
+			turnIndex: 0,
+			toolCalls: [
+				toolCall('a', 'execute_bash', {command: 'git log -1 main'}),
+			],
+		}),
+	];
+	const action = await engine.evaluate(facts);
+	t.deepEqual(action, {
+		type: 'block',
+		toolCallIds: ['a'],
+		message: 'git history forbidden',
+		urgency: 'light',
+		ruleId: 'no-history',
+		model: MIMO,
+	});
+	t.false(innerdaemonCalled, 'InnerDaemon must not be called for a constraint block');
+});
+
+// --- innerdaemon candidate: budget + delegation -----------------------------
+
+test('evaluate: budget not exceeded → no candidate, no InnerDaemon call', async t => {
+	let innerdaemonCalled = false;
+	const engine = engineWith(
+		[worktreeRule],
+		{action: 'inject', message: 'nudge', urgency: 'light'},
+	);
+	(engine as unknown as {innerdaemon: () => Promise<InnerDaemonResponse>}).innerdaemon =
+		async () => {
+			innerdaemonCalled = true;
+			return {action: 'inject', message: 'x', urgency: 'light'};
+		};
+	// only 1 turn in-scope, budget=2 → not exceeded
+	const facts = [worktreeFact(0)];
+	const action = await engine.evaluate(facts);
+	t.is(action, null);
+	t.false(innerdaemonCalled);
+});
+
+test('evaluate: budget exceeded → InnerDaemon inject fires', async t => {
+	const engine = engineWith(
+		[worktreeRule],
+		{action: 'inject', message: 'use the scripts', urgency: 'light'},
+	);
+	// 3 turns in-scope, budget=2 → exceeded
+	const facts = [worktreeFact(0), worktreeFact(1), worktreeFact(2)];
+	const action = await engine.evaluate(facts);
+	t.deepEqual(action, {
+		type: 'inject',
+		message: 'use the scripts',
+		urgency: 'light',
+		ruleId: 'worktree-supervision',
+		model: MIMO,
+	});
+});
+
+// --- announce mode: proactive one-shot scenario injection -------------------
+
+const announceRule: SteeringRule = {
+	id: 'frontend-prefs',
+	mode: 'announce',
+	condition: {intentClass: 'frontend-edit'},
+	body: 'Reuse ksui. Use theme tokens.',
+};
+
+const frontendFact = (turnIndex: number): TurnFact =>
+	makeFact({
+		turnIndex,
+		intentClass: 'frontend-edit',
+		toolCalls: [toolCall(`f${turnIndex}`, 'write_file', {path: 'ui/x.tsx'})],
+	});
+
+test('announce: fires once on first in-scope turn, injects body + ruleId', async t => {
+	let innerdaemonCalled = false;
+	const engine = new SteeringEngine({
+		rules: [announceRule],
+		modelId: MIMO,
+		criterionChecker: neverMet,
+		innerdaemon: (async () => {
+			innerdaemonCalled = true;
+			return {action: 'noop', reason: ''};
+		}) as InnerDaemonInvoker,
+	});
+	const action = await engine.evaluate([frontendFact(0)]);
+	t.deepEqual(action, {
+		type: 'inject',
+		message: 'Reuse ksui. Use theme tokens.',
+		urgency: 'light',
+		ruleId: 'frontend-prefs',
+		model: MIMO,
+	});
+	t.false(innerdaemonCalled, 'announce must not call InnerDaemon (fixed body)');
+});
+
+test('announce: dormant on later in-scope turns — never re-fires, never stops', async t => {
+	const engine = engineWith([announceRule], {action: 'noop', reason: ''});
+	const first = await engine.evaluate([frontendFact(0)]);
+	t.is(first?.type, 'inject', 'first in-scope turn announces');
+	// Second in-scope turn: dormant (null), NOT a stop-escalation.
+	const second = await engine.evaluate([frontendFact(0), frontendFact(1)]);
+	t.is(second, null, 'second turn is dormant, not a stop');
+	const third = await engine.evaluate([
+		frontendFact(0),
+		frontendFact(1),
+		frontendFact(2),
+	]);
+	t.is(third, null, 'stays dormant — an announce never stop-escalates');
+});
+
+test('announce: does not fire when the scenario is not in scope', async t => {
+	const engine = engineWith([announceRule], {action: 'noop', reason: ''});
+	// A worktree turn — different intent; the frontend announce must stay quiet.
+	const action = await engine.evaluate([worktreeFact(0)]);
+	t.is(action, null);
+});
+
+test('evaluate: criterion already met → no candidate (false alarm)', async t => {
+	const engine = engineWith(
+		[worktreeRule],
+		{action: 'inject', message: 'should not fire', urgency: 'light'},
+		alwaysMet,
+	);
+	const facts = [worktreeFact(0), worktreeFact(1), worktreeFact(2)];
+	const action = await engine.evaluate(facts);
+	t.is(action, null);
+});
+
+test('evaluate: InnerDaemon noop does not burn a fire slot', async t => {
+	let calls = 0;
+	const engine = new SteeringEngine({
+		rules: [worktreeRule],
+		modelId: MIMO,
+		criterionChecker: neverMet,
+		innerdaemon: async () => {
+			calls++;
+			return {action: 'noop', reason: 'false alarm'};
+		},
+	});
+	const facts = [worktreeFact(0), worktreeFact(1), worktreeFact(2)];
+	// First eval: noop. Should not count as a fire.
+	t.is(await engine.evaluate(facts), null);
+	// Advance a turn (out of cooldown), still noop — still not counted.
+	facts.push(worktreeFact(3));
+	t.is(await engine.evaluate(facts), null);
+	t.is(calls, 2, 'InnerDaemon called twice');
+	// Fire state should still be at 0 fires (noops don't count).
+	const fires = (engine as unknown as {state: {fires: Map<string, {count: number}>}}).state.fires;
+	t.is(fires.get('worktree-supervision')?.count ?? 0, 0);
+});
+
+// --- maxFires escalation ---------------------------------------------------
+
+test('evaluate: after maxFires real injections, escalate to stop', async t => {
+	const engine = engineWith(
+		[worktreeRule], // maxFires: 3, cooldownTurns: 1
+		{action: 'inject', message: 'nudge', urgency: 'light'},
+	);
+	// Turn 2: first fire (budget 2 exceeded)
+	let action = await engine.evaluate([worktreeFact(0), worktreeFact(1), worktreeFact(2)]);
+	t.is(action?.type, 'inject');
+	// Turn 4: second fire (cooldown 1 → turn 4 ok)
+	action = await engine.evaluate([worktreeFact(0), worktreeFact(1), worktreeFact(2), worktreeFact(3), worktreeFact(4)]);
+	t.is(action?.type, 'inject');
+	// Turn 6: third fire
+	action = await engine.evaluate([
+		worktreeFact(0), worktreeFact(1), worktreeFact(2),
+		worktreeFact(3), worktreeFact(4), worktreeFact(5), worktreeFact(6),
+	]);
+	t.is(action?.type, 'inject');
+	// Turn 8: maxFires (3) exceeded → stop, no InnerDaemon call
+	let innerdaemonCalls = 0;
+	(engine as unknown as {innerdaemon: () => Promise<InnerDaemonResponse>}).innerdaemon =
+		async () => {
+			innerdaemonCalls++;
+			return {action: 'inject', message: 'x', urgency: 'light'};
+		};
+	action = await engine.evaluate([
+		...Array.from({length: 8}, (_, i) => worktreeFact(i)),
+	]);
+	t.is(action?.type, 'stop');
+	t.is(innerdaemonCalls, 0, 'must not call InnerDaemon after maxFires');
+});
+
+// --- escalation ladder on relapse (finding #9) -----------------------------
+
+test('evaluate: relapse escalation — inject → firm → block, with escalationLevel threaded to InnerDaemon', async t => {
+	// maxFires 5 so the ladder can climb past the block rung (level 3) before the
+	// maxFires stop backstop. cooldown 1 so each later turn can re-fire.
+	const rule: SteeringRule = {
+		...worktreeRule,
+		maxFires: 5,
+		cooldownTurns: 1,
+	};
+	const seenLevels: number[] = [];
+	const engine = new SteeringEngine({
+		rules: [rule],
+		modelId: MIMO,
+		criterionChecker: neverMet,
+		innerdaemon: async req => {
+			seenLevels.push(req.situation.escalationLevel ?? -1);
+			return {action: 'inject', message: 'nudge', urgency: 'light'};
+		},
+	});
+	const factsUpTo = (n: number): TurnFact[] =>
+		Array.from({length: n + 1}, (_, i) => worktreeFact(i));
+
+	// Fire 1 (turn 2, level 0): byte-identical first nudge — inject, light.
+	let action = await engine.evaluate(factsUpTo(2));
+	t.is(action?.type, 'inject');
+	t.is((action as {urgency?: string}).urgency, 'light', 'first fire stays light');
+
+	// Fire 2 (turn 4, level 1): firmer re-nudge — inject, firm.
+	action = await engine.evaluate(factsUpTo(4));
+	t.is(action?.type, 'inject');
+	t.is((action as {urgency?: string}).urgency, 'firm', 'second fire is firm');
+
+	// Fire 3 (turn 6, level 2): still a firm inject.
+	action = await engine.evaluate(factsUpTo(6));
+	t.is(action?.type, 'inject');
+	t.is((action as {urgency?: string}).urgency, 'firm');
+
+	// Fire 4 (turn 8, level 3): persistent relapse → the repeat inject upgrades
+	// to a block.
+	action = await engine.evaluate(factsUpTo(8));
+	t.is(action?.type, 'block', 'level ≥ 3 upgrades a repeated inject to block');
+
+	// escalationLevel rose across the fires and was handed to InnerDaemon.
+	t.deepEqual(seenLevels, [0, 1, 2, 3], 'escalationLevel climbs with each fire');
+});
+
+test('evaluate: maxFires stop backstop still terminal above the block rung', async t => {
+	// maxFires 5: after five real injections the sixth candidate is a hard stop,
+	// regardless of the escalation ladder.
+	const rule: SteeringRule = {...worktreeRule, maxFires: 5, cooldownTurns: 1};
+	const engine = engineWith([rule], {
+		action: 'inject',
+		message: 'nudge',
+		urgency: 'light',
+	});
+	const factsUpTo = (n: number): TurnFact[] =>
+		Array.from({length: n + 1}, (_, i) => worktreeFact(i));
+	// Fires at turns 2,4,6,8,10 (5 fires), then turn 12 → count 5 ≥ maxFires 5.
+	for (const turn of [2, 4, 6, 8, 10]) {
+		await engine.evaluate(factsUpTo(turn));
+	}
+	const action = await engine.evaluate(factsUpTo(12));
+	t.is(action?.type, 'stop', 'maxFires reached → stop backstop');
+});
+
+// --- cooldown --------------------------------------------------------------
+
+test('evaluate: rule in cooldown is skipped, next candidate tried', async t => {
+	// Two rules: the worktree one (cooldown 1) and a universal detector-only
+	// fallback that should fire when the first is cooling down.
+	const detectorRule: SteeringRule = {
+		id: 'universal-fallback',
+		mode: 'detector-only',
+		condition: {modelIn: ['mimo-v2.5']},
+		body: 'Stay on task.',
+	};
+	let innerdaemonCalls = 0;
+	const engine = new SteeringEngine({
+		rules: [worktreeRule, detectorRule],
+		modelId: MIMO,
+		criterionChecker: neverMet,
+		innerdaemon: async () => {
+			innerdaemonCalls++;
+			return {action: 'inject', message: 'wt nudge', urgency: 'light'};
+		},
+	});
+	const facts = [worktreeFact(0), worktreeFact(1), worktreeFact(2)];
+	// First eval: worktree rule fires (inject).
+	t.is((await engine.evaluate(facts))?.type, 'inject');
+	t.is(innerdaemonCalls, 1);
+	// Second eval same turn window: worktree rule in cooldown (lastFire=2,
+	// cooldown=1, turn 2 - 2 = 0 < 1 → skip), so the detector-only fallback
+	// fires instead.
+	const action = await engine.evaluate(facts);
+	t.is(action?.type, 'inject');
+	t.true(
+		(action as {message?: string})?.message?.includes('universal-fallback'),
+		'detector-only fallback fired while innerdaemon rule cooled down',
+	);
+});
+
+// --- detector-only rule ----------------------------------------------------
+
+test('evaluate: detector-only rule acts directly, no InnerDaemon call', async t => {
+	let innerdaemonCalled = false;
+	const rule: SteeringRule = {
+		id: 'always-nudge',
+		mode: 'detector-only',
+		condition: {modelIn: ['mimo-v2.5']},
+		body: 'First line of guidance.',
+	};
+	const engine = new SteeringEngine({
+		rules: [rule],
+		modelId: MIMO,
+		criterionChecker: neverMet,
+		innerdaemon: async () => {
+			innerdaemonCalled = true;
+			return {action: 'noop', reason: ''};
+		},
+	});
+	const action = await engine.evaluate([worktreeFact(0)]);
+	t.is(action?.type, 'inject');
+	t.false(innerdaemonCalled);
+});
+
+// --- model gate end-to-end ------------------------------------------------
+
+test('evaluate: Claude session → no steering (model gate at engine level)', async t => {
+	const engine = new SteeringEngine({
+		rules: [worktreeRule],
+		modelId: 'claude-sonnet-4-6',
+		criterionChecker: neverMet,
+		innerdaemon: async () => ({action: 'inject', message: 'x', urgency: 'light'}),
+	});
+	const facts = [worktreeFact(0), worktreeFact(1), worktreeFact(2), worktreeFact(3)];
+	t.is(await engine.evaluate(facts), null);
+});
+
+// --- empty facts ----------------------------------------------------------
+
+test('evaluate: empty facts → null', async t => {
+	const engine = engineWith([worktreeRule], {action: 'inject', message: 'x', urgency: 'light'});
+	t.is(await engine.evaluate([]), null);
+});
+
+// --- createCriterionChecker (observable predicates) -----------------------
+
+test('createCriterionChecker: worktreeDirExists via successful worktree-create output', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x/Hilinga');
+	const fact = makeFact({
+		toolResults: [
+			toolResult('a', 'execute_bash', 'worktree-create.sh ran, plugins 10/10'),
+		],
+	});
+	t.true(checker('worktreeDirExists', fact));
+});
+
+test('createCriterionChecker: worktreeDirExists is stateful — populated worktree stays met (rule dormant in later phases); bare mkdir does not', async t => {
+	const {mkdtempSync, mkdirSync, writeFileSync} = await import('node:fs');
+	const {join} = await import('node:path');
+	const {tmpdir} = await import('node:os');
+	const {createCriterionChecker} = await import('./steering-engine');
+
+	const root = mkdtempSync(join(tmpdir(), 'steer-wt-'));
+	// A fully-built worktree (populated) — the reproduce/TDD/fix phases merely
+	// reference it by path.
+	mkdirSync(join(root, '.claude', 'worktrees', 'built', 'kserp'), {
+		recursive: true,
+	});
+	writeFileSync(join(root, '.claude', 'worktrees', 'built', 'kserp', '.env'), 'x');
+	// A bare hand-rolled empty mkdir — the failure mode the rule targets.
+	mkdirSync(join(root, '.claude', 'worktrees', 'empty'), {recursive: true});
+
+	const checker = createCriterionChecker(() => root);
+
+	const referencesBuilt = makeFact({
+		toolCalls: [
+			toolCall('a', 'execute_bash', {
+				command: `ls ${root}/.claude/worktrees/built/`,
+			}),
+		],
+	});
+	t.true(
+		checker('worktreeDirExists', referencesBuilt),
+		'populated worktree → met (create-only rule goes dormant, no false-fire in reproduce)',
+	);
+
+	const bareMkdir = makeFact({
+		toolCalls: [
+			toolCall('b', 'execute_bash', {
+				command: `mkdir -p ${root}/.claude/worktrees/empty`,
+			}),
+		],
+	});
+	t.false(
+		checker('worktreeDirExists', bareMkdir),
+		'empty mkdir → not met (rule still fires on a hand-roll)',
+	);
+});
+
+test('createCriterionChecker: worktreeDirExists false on error output', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x/Hilinga');
+	const fact = makeFact({
+		toolResults: [toolResult('a', 'execute_bash', 'Error: concurrently not found')],
+	});
+	t.false(checker('worktreeDirExists', fact));
+});
+
+test('createCriterionChecker: cwd under worktrees/ → true', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x/Hilinga');
+	const fact = makeFact({cwd: '/mnt/x/Hilinga/.claude/worktrees/foo'});
+	t.true(checker('worktreeDirExists', fact));
+});
+
+test('createCriterionChecker: portListenerExists via listening output', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+	t.true(
+		checker(
+			'portListenerExists',
+			makeFact({
+				toolResults: [toolResult('a', 'execute_bash', 'API listening on localhost:4661')],
+			}),
+		),
+	);
+	t.false(
+		checker(
+			'portListenerExists',
+			makeFact({
+				toolResults: [toolResult('a', 'execute_bash', 'ECONNREFUSED localhost:4661')],
+			}),
+		),
+	);
+});
+
+test('createCriterionChecker: portListenerExists is stateful — a real listening socket → met (rule dormant); a dead port falls back to the output heuristic', async t => {
+	const net = await import('node:net');
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	// Bind a real listening socket on a free port (node picks one via :0).
+	const server = net.createServer();
+	await new Promise<void>(resolve =>
+		server.listen(0, '127.0.0.1', () => resolve()),
+	);
+	const addr = server.address();
+	const port = typeof addr === 'object' && addr ? addr.port : 0;
+
+	try {
+		// A turn that references the genuinely-listening port, but whose OUTPUT
+		// carries NO listening/ready keyword — so only the stateful `/proc`
+		// socket probe can make this met (the old output heuristic would say
+		// unmet). Linux-only assertion (proc parsing is Linux).
+		const referencesLive = makeFact({
+			toolCalls: [
+				toolCall('a', 'execute_bash', {
+					command: `curl -s -o /dev/null http://localhost:${port}/`,
+				}),
+			],
+			toolResults: [toolResult('a', 'execute_bash', '200')],
+		});
+		if (process.platform === 'linux') {
+			t.true(
+				checker('portListenerExists', referencesLive),
+				'genuinely listening port → met via /proc socket probe (rule dormant)',
+			);
+		} else {
+			t.pass('non-Linux: /proc probe unavailable, skipping the live assertion');
+		}
+
+		// A dead port (nothing listening): the stateful probe fails, so the
+		// result falls back to the output-based heuristic.
+		const deadPort = 1; // privileged, guaranteed not our listener
+		t.true(
+			checker(
+				'portListenerExists',
+				makeFact({
+					toolResults: [
+						toolResult(
+							'a',
+							'execute_bash',
+							`ready in 200ms on localhost:${deadPort}`,
+						),
+					],
+				}),
+			),
+			'dead port + positive output → heuristic fallback says met',
+		);
+		t.false(
+			checker(
+				'portListenerExists',
+				makeFact({
+					toolResults: [
+						toolResult(
+							'a',
+							'execute_bash',
+							`ECONNREFUSED localhost:${deadPort}`,
+						),
+					],
+				}),
+			),
+			'dead port + error output → not met',
+		);
+	} finally {
+		await new Promise<void>(resolve => server.close(() => resolve()));
+	}
+});
+
+test('createCriterionChecker: newTestFileExists via write_file to .spec.ts', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+	t.true(
+		checker(
+			'newTestFileExists',
+			makeFact({
+				toolCalls: [toolCall('a', 'write_file', {path: 'tests/x.spec.ts'})],
+			}),
+		),
+	);
+	t.false(
+		checker(
+			'newTestFileExists',
+			makeFact({
+				toolCalls: [toolCall('a', 'write_file', {path: 'src/x.ts'})],
+			}),
+		),
+	);
+});
+
+// --- Loop-stateful criteria (facts-aware) ---------------------------------
+
+test('createCriterionChecker: uiDrivenOrAppRun is loop-stateful — unmet before, met at, and stays met after a browser/app-run turn', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	const readTurn0 = makeFact({
+		turnIndex: 0,
+		intentClass: 'reproduce',
+		toolCalls: [toolCall('r0', 'read_file', {path: 'src/counter.ts'})],
+	});
+	const readTurn1 = makeFact({
+		turnIndex: 1,
+		intentClass: 'reproduce',
+		toolCalls: [toolCall('r1', 'grep', {pattern: 'availment'})],
+	});
+	const browseTurn2 = makeFact({
+		turnIndex: 2,
+		toolCalls: [toolCall('b2', 'browser_navigate', {url: 'http://x/counter'})],
+	});
+	const readTurn3 = makeFact({
+		turnIndex: 3,
+		toolCalls: [toolCall('r3', 'read_file', {path: 'src/fix.ts'})],
+	});
+
+	// Not met before any browser/app-run happened this task.
+	t.false(
+		checker('uiDrivenOrAppRun', readTurn0, [readTurn0]),
+		'no UI drive yet → unmet',
+	);
+	t.false(
+		checker('uiDrivenOrAppRun', readTurn1, [readTurn0, readTurn1]),
+		'still no UI drive → unmet',
+	);
+	// Met at the turn the browser call happens.
+	t.true(
+		checker('uiDrivenOrAppRun', browseTurn2, [readTurn0, readTurn1, browseTurn2]),
+		'browser_* call → met',
+	);
+	// Stays met on a later read-only turn (the fix phase).
+	t.true(
+		checker('uiDrivenOrAppRun', readTurn3, [
+			readTurn0,
+			readTurn1,
+			browseTurn2,
+			readTurn3,
+		]),
+		'stays met after the reproduction (loop-stateful)',
+	);
+});
+
+test('createCriterionChecker: uiDrivenOrAppRun — a non-error dev-server run counts; an errored run does not', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	const okRun = makeFact({
+		toolCalls: [toolCall('a', 'execute_bash', {command: 'pnpm run dev'})],
+		toolResults: [toolResult('a', 'execute_bash', 'ready in 200ms')],
+	});
+	t.true(checker('uiDrivenOrAppRun', okRun, [okRun]), 'clean dev run → met');
+
+	const failedRun = makeFact({
+		toolCalls: [toolCall('a', 'execute_bash', {command: 'pnpm run dev'})],
+		toolResults: [toolResult('a', 'execute_bash', 'Error: port in use, failed')],
+	});
+	t.false(
+		checker('uiDrivenOrAppRun', failedRun, [failedRun]),
+		'errored dev run → not met',
+	);
+});
+
+test('createCriterionChecker: artifactProducedThisTask is loop-stateful — unmet through read-only turns, met once an edit lands, stays met', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	const explore0 = makeFact({
+		turnIndex: 0,
+		toolCalls: [toolCall('e0', 'agent', {subagent: 'explore', task: 'find it'})],
+	});
+	const read1 = makeFact({
+		turnIndex: 1,
+		toolCalls: [toolCall('r1', 'read_file', {path: 'a.ts'})],
+	});
+	const write2 = makeFact({
+		turnIndex: 2,
+		toolCalls: [toolCall('w2', 'write_file', {path: 'a.spec.ts'})],
+	});
+	const read3 = makeFact({
+		turnIndex: 3,
+		toolCalls: [toolCall('r3', 'read_file', {path: 'b.ts'})],
+	});
+
+	t.false(
+		checker('artifactProducedThisTask', explore0, [explore0]),
+		'explore only → no artifact',
+	);
+	t.false(
+		checker('artifactProducedThisTask', read1, [explore0, read1]),
+		'still only reading → no artifact',
+	);
+	t.true(
+		checker('artifactProducedThisTask', write2, [explore0, read1, write2]),
+		'a write landed → artifact produced',
+	);
+	t.true(
+		checker('artifactProducedThisTask', read3, [explore0, read1, write2, read3]),
+		'stays met on a later read-only turn',
+	);
+});
+
+test('createCriterionChecker: artifactProducedThisTask counts a test run and a browser call as artifacts', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+	const testRun = makeFact({
+		toolCalls: [toolCall('a', 'execute_bash', {command: 'npx ava src/x.spec.ts'})],
+	});
+	t.true(checker('artifactProducedThisTask', testRun, [testRun]), 'test run → artifact');
+	const browse = makeFact({
+		toolCalls: [toolCall('a', 'browser_click', {ref: 'e1'})],
+	});
+	t.true(checker('artifactProducedThisTask', browse, [browse]), 'browser call → artifact');
+});
+
+test('createCriterionChecker: implEditedBeforeTest — true when impl edited before any test, false when test written first', async t => {
+	const {createCriterionChecker} = await import('./steering-engine');
+	const checker = createCriterionChecker(() => '/mnt/x');
+
+	// Impl-first: write src before any spec → violation is TRUE at the impl turn
+	// and stays true afterwards.
+	const implFirst0 = makeFact({
+		turnIndex: 0,
+		toolCalls: [toolCall('i0', 'write_file', {path: 'src/counter.ts'})],
+	});
+	const laterTest1 = makeFact({
+		turnIndex: 1,
+		toolCalls: [toolCall('t1', 'write_file', {path: 'src/counter.spec.ts'})],
+	});
+	t.true(
+		checker('implEditedBeforeTest', implFirst0, [implFirst0]),
+		'impl written with no test yet → violation',
+	);
+	t.true(
+		checker('implEditedBeforeTest', laterTest1, [implFirst0, laterTest1]),
+		'stays true even after a test is later added (the ordering already broke)',
+	);
+
+	// Test-first: spec before impl → never a violation.
+	const test0 = makeFact({
+		turnIndex: 0,
+		toolCalls: [toolCall('t0', 'write_file', {path: 'src/counter.spec.ts'})],
+	});
+	const impl1 = makeFact({
+		turnIndex: 1,
+		toolCalls: [toolCall('i1', 'string_replace', {path: 'src/counter.ts'})],
+	});
+	t.false(
+		checker('implEditedBeforeTest', test0, [test0]),
+		'test-first turn → no violation',
+	);
+	t.false(
+		checker('implEditedBeforeTest', impl1, [test0, impl1]),
+		'impl AFTER the test → no violation (earned the edit)',
+	);
+});

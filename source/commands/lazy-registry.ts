@@ -41,6 +41,13 @@ export const lazyCommands: LazyCommand[] = [
 		load: () => import('@/commands/compact').then(m => m.compactCommand),
 	},
 	{
+		name: 'innerdaemon',
+		description:
+			'Toggle InnerDaemon auto-steering. Usage: /innerdaemon on|off|status|verbose on|off',
+		load: () =>
+			import('@/commands/innerdaemon').then(m => m.innerdaemonCommand),
+	},
+	{
 		name: 'codex-login',
 		description:
 			'Log in to ChatGPT/Codex (device flow). Saves credentials for the "ChatGPT" provider.',

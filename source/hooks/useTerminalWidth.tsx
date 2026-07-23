@@ -3,9 +3,35 @@ import {DEFAULT_TERMINAL_COLUMNS} from '@/constants';
 
 type TerminalSize = 'narrow' | 'normal' | 'wide';
 
-// Calculate box width (leave some padding and ensure minimum width)
-const calculateBoxWidth = (columns: number) =>
+// Calculate box width (leave some padding and ensure minimum width).
+export const calculateBoxWidth = (columns: number) =>
 	Math.max(Math.min(columns - 4, 120), 40);
+
+/**
+ * Decide whether cli.tsx's INLINE-mode resize guard should wipe the screen
+ * before Ink repaints.
+ *
+ * Terminals REFLOW previously painted rows on a horizontal resize (tmux
+ * joins or wraps them), so Ink's newline-count erase bookkeeping no longer
+ * matches the physical screen and every repaint composites stale fragments
+ * over the live UI (garbled input box / echo). A clear + home fixes that —
+ * but only when Ink is guaranteed to rewrite the frame afterwards: any
+ * column shrink (Ink resets its last output on shrink), or a growth that
+ * changes the computed box width (and thus the rendered output). Wiping
+ * without a guaranteed rewrite would leave the screen blank until the next
+ * state change. Vertical-only resizes never reflow, so they never wipe.
+ */
+export const shouldClearOnInlineResize = (
+	previousColumns: number | undefined,
+	currentColumns: number | undefined,
+): boolean => {
+	if (!currentColumns || !previousColumns) return false;
+	if (currentColumns === previousColumns) return false;
+	return (
+		currentColumns < previousColumns ||
+		calculateBoxWidth(currentColumns) !== calculateBoxWidth(previousColumns)
+	);
+};
 
 const computeWidth = () =>
 	calculateBoxWidth(process.stdout.columns || DEFAULT_TERMINAL_COLUMNS);

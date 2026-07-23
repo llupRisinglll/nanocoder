@@ -1260,3 +1260,57 @@ test.serial(
 		}
 	},
 );
+
+
+// ============================================================================
+// Narrow-terminal width cap (regression)
+// ============================================================================
+
+// Regression: boxWidth floors at 40 columns, so on terminals narrower than
+// ~44 columns the omnicode (promptChar) textbox painted border rows WIDER
+// than the real terminal. Over-wide rows hard-wrap in the terminal, breaking
+// Ink's erase accounting: each keystroke repaint under-erases, and the
+// accumulated residue composites into a garbled echo when the submitted
+// message commits to the transcript. The promptChar textbox must cap its box
+// at the true terminal width. serial: mutates process.stdout.columns.
+test.serial(
+	'UserInput promptChar textbox caps its rows to a narrow terminal width',
+	t => {
+		const original = process.stdout.columns;
+		Object.defineProperty(process.stdout, 'columns', {
+			value: 30,
+			configurable: true,
+		});
+		try {
+			const omnicodeTheme = {
+				currentTheme: 'omnicode' as const,
+				colors: themes.omnicode.colors,
+				setCurrentTheme: () => {},
+			};
+			const {lastFrame, unmount} = render(
+				<ThemeContext.Provider value={omnicodeTheme}>
+					<UIStateProvider>
+						<UserInput />
+					</UIStateProvider>
+				</ThemeContext.Provider>,
+			);
+			const frame = stripAnsi(lastFrame() ?? '');
+			unmount();
+			// Assert on the textbox rows themselves (border/prompt rows) so an
+			// unrelated wide status row can never mask or fake this regression.
+			const boxRows = frame.split('\n').filter(line => /[\u256D\u2502\u2570]/.test(line));
+			t.true(boxRows.length > 0, 'expected textbox border rows');
+			for (const line of boxRows) {
+				t.true(
+					line.length <= 30,
+					`textbox row wider than 30-col terminal (${line.length}): ${JSON.stringify(line)}`,
+				);
+			}
+		} finally {
+			Object.defineProperty(process.stdout, 'columns', {
+				value: original,
+				configurable: true,
+			});
+		}
+	},
+);
