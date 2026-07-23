@@ -8,6 +8,7 @@ import type {
 	UserContent,
 } from 'ai';
 import type {ImageAttachment, Message} from '@/types/index';
+import {createCancellationResults} from '@/utils/tool-cancellation';
 import type {TestableMessage} from '../types.js';
 
 /**
@@ -116,13 +117,60 @@ export function dropOrphanedToolResults(messages: Message[]): Message[] {
 }
 
 /**
+ * Synthesize a cancellation tool-result for any assistant `tool_calls` that has
+ * no following tool-result. A dangling tool_call arises when the user interrupts
+ * a turn after the model emitted a tool call but before its result was produced
+ * — the assistant(tool_calls) message is persisted with no answer. Providers
+ * reject the sequence ("tool_calls must be followed by tool results") on EVERY
+ * subsequent request, so the conversation wedges and no new message can recover
+ * it. Inserting a "cancelled by the user" result closes the turn and lets the
+ * conversation resume. Defensive net for any path that can orphan a call.
+ *
+ * Exported for testing.
+ */
+export function repairDanglingToolCalls(messages: Message[]): Message[] {
+	const result: Message[] = [];
+	let i = 0;
+	while (i < messages.length) {
+		const msg = messages[i];
+		result.push(msg);
+		i++;
+		if (msg.role !== 'assistant' || !msg.tool_calls?.length) {
+			continue;
+		}
+		// Carry over the immediately-following run of real tool results, tracking
+		// which tool_call ids they answer.
+		const answered = new Set<string>();
+		while (i < messages.length && messages[i].role === 'tool') {
+			const id = messages[i].tool_call_id;
+			if (id) answered.add(id);
+			result.push(messages[i]);
+			i++;
+		}
+		// Close any tool_call left unanswered with a cancellation result.
+		const missing = msg.tool_calls.filter(tc => tc.id && !answered.has(tc.id));
+		for (const cancelled of createCancellationResults(missing)) {
+			result.push({
+				role: 'tool',
+				content: cancelled.content,
+				tool_call_id: cancelled.tool_call_id,
+				name: cancelled.name,
+			});
+		}
+	}
+	return result;
+}
+
+/**
  * Convert our Message format to AI SDK v6 ModelMessage format
  *
  * Tool messages: Converted to AI SDK tool-result format with proper structure.
- * Orphaned tool results are dropped first (see dropOrphanedToolResults).
+ * Dangling tool calls are closed with cancellation results and orphaned tool
+ * results are dropped first (see repairDanglingToolCalls / dropOrphanedToolResults).
  */
 export function convertToModelMessages(messages: Message[]): ModelMessage[] {
-	return dropOrphanedToolResults(messages).map((msg): ModelMessage => {
+	const prepared = dropOrphanedToolResults(repairDanglingToolCalls(messages));
+	return prepared.map((msg): ModelMessage => {
 		if (msg.role === 'tool') {
 			// Convert to AI SDK tool-result format
 			// AI SDK expects: { role: 'tool', content: [{ type: 'tool-result', toolCallId, toolName, output }] }

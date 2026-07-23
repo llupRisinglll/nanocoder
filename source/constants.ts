@@ -30,6 +30,10 @@ export const PASTE_LARGE_CONTENT_THRESHOLD_CHARS = 150;
 export const CACHE_FILE_TTL_MS = 5000;
 export const CACHE_MODELS_EXPIRATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export const MAX_FILE_READ_RETRIES = 3;
+// How many times a turn is re-issued after a transient mid-stream stall (a
+// slow/free model going quiet past the provider's SSE inactivity window) before
+// the error surfaces. Keeps a single hiccup from dropping the whole turn.
+export const MAX_STREAM_STALL_RETRIES = 2;
 
 // === SESSION NAMES ===
 export const MAX_SESSION_NAME_LENGTH = 100;

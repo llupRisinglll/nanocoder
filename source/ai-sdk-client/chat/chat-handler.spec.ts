@@ -361,3 +361,76 @@ test('privacy: scrubs outgoing prompts and rehydrates the response at the histor
 	t.is(content, 'Saved real@example.com');
 	t.false(content.includes('«'));
 });
+
+// --- mid-stream stall auto-retry ---------------------------------------------
+
+function stallThenSucceedModel(succeedOnAttempt: number, counter: {n: number}) {
+	return {
+		specificationVersion: 'v3',
+		provider: 'test-provider',
+		modelId: 'test-model',
+		doStream: async () => {
+			counter.n++;
+			if (counter.n < succeedOnAttempt) {
+				throw new Error(
+					'Stream produced no non-ping SSE event within 95000ms',
+				);
+			}
+			return {
+				stream: new ReadableStream({
+					start(controller) {
+						controller.enqueue({type: 'text-start', id: '0'});
+						controller.enqueue({type: 'text-delta', id: '0', delta: 'recovered'});
+						controller.enqueue({type: 'text-end', id: '0'});
+						controller.enqueue({
+							type: 'finish',
+							finishReason: 'stop',
+							usage: {inputTokens: 1, outputTokens: 1, totalTokens: 2},
+						});
+						controller.close();
+					},
+				}),
+			};
+		},
+	} as LanguageModel;
+}
+
+const stallProviderConfig: AIProviderConfig = {
+	name: 'TestProvider',
+	type: 'openai',
+	models: ['test-model'],
+	config: {baseURL: 'https://api.test.com'},
+};
+
+test('handleChat retries the turn after a mid-stream stall, then succeeds', async t => {
+	const counter = {n: 0};
+	const result = await handleChat({
+		model: stallThenSucceedModel(2, counter),
+		currentModel: 'test-model',
+		providerConfig: stallProviderConfig,
+		messages: [{role: 'user', content: 'test'}],
+		tools: {},
+		callbacks: {},
+		maxRetries: 0,
+	});
+	t.is(counter.n, 2, 'stalled once, retried once');
+	t.is(result.choices[0]?.message.content, 'recovered');
+});
+
+test('handleChat surfaces the error after exhausting stall retries', async t => {
+	const counter = {n: 0};
+	// Never succeeds (succeedOnAttempt very high) → every attempt stalls.
+	await t.throwsAsync(
+		handleChat({
+			model: stallThenSucceedModel(99, counter),
+			currentModel: 'test-model',
+			providerConfig: stallProviderConfig,
+			messages: [{role: 'user', content: 'test'}],
+			tools: {},
+			callbacks: {},
+			maxRetries: 0,
+		}),
+	);
+	// 1 initial attempt + MAX_STREAM_STALL_RETRIES (2) retries = 3 doStream calls.
+	t.is(counter.n, 3, 'initial + 2 retries, then gives up');
+});

@@ -3,6 +3,7 @@ import type {Message} from '@/types/index';
 import {
 	convertToModelMessages,
 	dropOrphanedToolResults,
+	repairDanglingToolCalls,
 	isEmptyAssistantMessage,
 } from './message-converter.js';
 import type {TestableMessage} from '../types.js';
@@ -162,7 +163,8 @@ test('convertToModelMessages converts assistant message with tool calls', t => {
 	];
 
 	const result = convertToModelMessages(messages);
-	t.is(result.length, 1);
+	// repair appends a cancellation tool-result for the otherwise-dangling call
+	t.is(result.length, 2);
 	t.is(result[0].role, 'assistant');
 	t.true(Array.isArray(result[0].content));
 	const content = result[0].content as Array<{
@@ -196,7 +198,8 @@ test('convertToModelMessages converts assistant message with both text and tool 
 	];
 
 	const result = convertToModelMessages(messages);
-	t.is(result.length, 1);
+	// repair appends a cancellation tool-result for the otherwise-dangling call
+	t.is(result.length, 2);
 	t.is(result[0].role, 'assistant');
 	t.true(Array.isArray(result[0].content));
 	const content = result[0].content as Array<{type: string}>;
@@ -359,4 +362,86 @@ test('dropOrphanedToolResults drops a tool result lacking a tool_call_id', t => 
 	const result = dropOrphanedToolResults(messages);
 	t.is(result.length, 1);
 	t.is(result[0].role, 'user');
+});
+
+// --- repairDanglingToolCalls: user-interrupt resume ---------------------------
+
+test('repairDanglingToolCalls closes a dangling tool_call so the turn can resume', t => {
+	// Model emitted a tool_call, the user interrupted before the result, then
+	// sent a new message. Without repair this sequence is rejected forever.
+	const messages: Message[] = [
+		{role: 'user', content: 'read the config'},
+		{
+			role: 'assistant',
+			content: '',
+			tool_calls: [
+				{
+					id: 'call_1',
+					type: 'function',
+					function: {name: 'read_file', arguments: '{"path":"a"}'},
+				},
+			],
+		},
+		{role: 'user', content: 'are you there?'},
+	];
+	const repaired = repairDanglingToolCalls(messages);
+	t.deepEqual(
+		repaired.map(m => m.role),
+		['user', 'assistant', 'tool', 'user'],
+		'a cancellation tool result is inserted after the dangling call',
+	);
+	const toolMsg = repaired[2];
+	t.is(toolMsg.role, 'tool');
+	t.is(toolMsg.tool_call_id, 'call_1');
+	t.regex(String(toolMsg.content), /cancel/i);
+});
+
+test('repairDanglingToolCalls leaves fully-answered tool_calls untouched', t => {
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			tool_calls: [
+				{id: 'c1', type: 'function', function: {name: 't', arguments: '{}'}},
+			],
+		},
+		{role: 'tool', tool_call_id: 'c1', name: 't', content: 'ok'},
+		{role: 'user', content: 'thanks'},
+	];
+	t.deepEqual(repairDanglingToolCalls(messages), messages);
+});
+
+test('repairDanglingToolCalls only closes the unanswered call in a multi-call turn', t => {
+	const messages: Message[] = [
+		{
+			role: 'assistant',
+			content: '',
+			tool_calls: [
+				{id: 'c1', type: 'function', function: {name: 't1', arguments: '{}'}},
+				{id: 'c2', type: 'function', function: {name: 't2', arguments: '{}'}},
+			],
+		},
+		{role: 'tool', tool_call_id: 'c1', name: 't1', content: 'ok'},
+	];
+	const repaired = repairDanglingToolCalls(messages);
+	const toolIds = repaired.filter(m => m.role === 'tool').map(m => m.tool_call_id);
+	t.deepEqual(toolIds.sort(), ['c1', 'c2'], 'c2 gets a synthetic result');
+});
+
+test('convertToModelMessages produces a tool-result for a dangling call (resumable)', t => {
+	const converted = convertToModelMessages([
+		{role: 'user', content: 'go'},
+		{
+			role: 'assistant',
+			content: '',
+			tool_calls: [
+				{id: 'call_x', type: 'function', function: {name: 'f', arguments: '{}'}},
+			],
+		},
+		{role: 'user', content: 'hi'},
+	]);
+	t.true(
+		converted.some(m => m.role === 'tool'),
+		'the dangling call is answered so the provider will accept the request',
+	);
 });
