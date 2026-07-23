@@ -6,7 +6,7 @@ import {
 	streamText,
 	ToolCallRepairError,
 } from 'ai';
-import {MAX_TOOL_STEPS} from '@/constants';
+import {MAX_STREAM_STALL_RETRIES, MAX_TOOL_STEPS} from '@/constants';
 import {formatForProvider, remapToolKeys} from '@/tools/tool-aliases';
 import type {
 	AIProviderConfig,
@@ -34,6 +34,7 @@ import {convertToModelMessages} from '../converters/message-converter.js';
 import {convertAISDKToolCalls} from '../converters/tool-converter.js';
 import {extractRootError} from '../error-handling/error-extractor.js';
 import {parseAPIError} from '../error-handling/error-parser.js';
+import {isStreamStallError} from '../error-handling/stream-stall-detector.js';
 import {isToolSupportError} from '../error-handling/tool-error-detector.js';
 import {
 	applyCachePolicy,
@@ -91,6 +92,8 @@ export interface ChatHandlerParams {
 	signal?: AbortSignal;
 	maxRetries: number;
 	skipTools?: boolean;
+	/** How many times this turn has already been retried after a mid-stream stall. */
+	stallRetryAttempt?: number;
 	modeOverrides?: ModeOverrides;
 	privacySessionMapRef?: React.MutableRefObject<Record<string, string>>;
 	privacyEnabled?: boolean;
@@ -661,6 +664,31 @@ export async function handleChat(
 				return await handleChat({
 					...params,
 					skipTools: true, // Mark that we're retrying
+				});
+			}
+
+			// Retry a transient mid-stream stall — a slow/free model went quiet and
+			// the provider's SSE inactivity window elapsed with nothing usable
+			// produced. Re-issue the same turn (the AbortError check above already
+			// let real cancellations through) up to MAX_STREAM_STALL_RETRIES before
+			// the error surfaces, so a single hiccup no longer drops the whole turn.
+			// A mid-stream stall surfaces as a generic `NoOutputGeneratedError`;
+			// the real transport message is captured via `onError` in
+			// `streamingErrors`, so consult both.
+			const stallAttempt = params.stallRetryAttempt ?? 0;
+			const isStall =
+				isStreamStallError(error) || streamingErrors.some(isStreamStallError);
+			if (isStall && stallAttempt < MAX_STREAM_STALL_RETRIES) {
+				logger.warn('Stream stalled; retrying turn', {
+					attempt: stallAttempt + 1,
+					max: MAX_STREAM_STALL_RETRIES,
+					model: currentModel,
+					correlationId,
+					provider: providerConfig.name,
+				});
+				return await handleChat({
+					...params,
+					stallRetryAttempt: stallAttempt + 1,
 				});
 			}
 
